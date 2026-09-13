@@ -1,0 +1,39 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #1a1a1a;
+  color: #eee;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+}
+
+#viewport {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+#viewport canvas {
+  display: block;
+}
+
+#panel {
+  width: 280px;
+  flex-shrink: 0;
+  position: relative;
+  background: #222;
+  border-left: 1px solid #333;
+}
