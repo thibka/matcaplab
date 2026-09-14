@@ -27,12 +27,51 @@ function refresh() {
   scene.update(state);
 }
 
+function randomInRange(min: number, max: number, decimals = 2): number {
+  const value = min + Math.random() * (max - min);
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
+function randomColor(): string {
+  const hue = Math.floor(randomInRange(0, 360));
+  const saturation = Math.floor(randomInRange(40, 90));
+  const lightness = Math.floor(randomInRange(45, 85));
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+}
+
+function hslToHex(hsl: string): string {
+  const ctx = document.createElement("canvas").getContext("2d")!;
+  ctx.fillStyle = hsl;
+  return ctx.fillStyle;
+}
+
+function randomizePreset() {
+  state.key.color = hslToHex(randomColor());
+  state.key.intensity = randomInRange(0.8, 3, 2);
+  state.key.azimuth = randomInRange(-180, 180, 0);
+  state.key.elevation = randomInRange(15, 75, 0);
+
+  state.fill.color = hslToHex(randomColor());
+  state.fill.intensity = randomInRange(0.2, 1.5, 2);
+  state.fill.azimuth = randomInRange(-180, 180, 0);
+  state.fill.elevation = randomInRange(-60, 10, 0);
+
+  state.material.color = hslToHex(randomColor());
+  state.material.roughness = randomInRange(0.1, 0.8, 2);
+  state.material.metalness = randomInRange(0, 0.6, 2);
+
+  refresh();
+}
+
 const gui = new GUI({
   container: panel,
   position: "top left",
   draggable: false,
   width: 280,
 });
+
+gui.button({ label: "Randomize" }).onClick(randomizePreset);
 
 const keyFolder = gui.folder({ label: "Key Light" });
 keyFolder.color(state.key, "color", { label: "Color" }).onChange(refresh);
