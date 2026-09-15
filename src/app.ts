@@ -8,6 +8,7 @@ const preview = document.querySelector<HTMLDivElement>('#preview')!;
 const panel = document.querySelector<HTMLDivElement>('#panel')!;
 
 const state: SceneState = {
+    model: { geometry: 'torus', autorotate: true },
     key: { color: '#ffffff', intensity: 2, azimuth: -40, elevation: 40 },
     fill: { color: '#88aaff', intensity: 0.6, azimuth: 130, elevation: -20 },
     ambient: { color: '#ffffff', intensity: 0.35 },
@@ -51,6 +52,10 @@ const gui = new GUI({
 });
 
 gui.button({ label: 'Randomize' }).onClick(randomizePreset);
+
+const modelFolder = gui.folder({ label: 'Model' });
+modelFolder.list(state.model, 'geometry', ['torus', 'suzanne'], { label: 'Model' });
+modelFolder.toggle(state.model, 'autorotate', { label: 'Auto-rotate' });
 
 const keyFolder = gui.folder({ label: 'Key Light' });
 keyFolder.color(state.key, 'color', { label: 'Color' });

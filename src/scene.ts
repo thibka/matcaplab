@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export type LightState = {
     color: string;
@@ -19,6 +20,7 @@ export type AmbientState = {
 };
 
 export type SceneState = {
+    model: { geometry: string; autorotate: boolean };
     key: LightState;
     fill: LightState;
     ambient: AmbientState;
@@ -38,6 +40,12 @@ export class MatcapScene {
     private camera: THREE.OrthographicCamera;
     private cameraViewSize: number;
     private sphere: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
+    private modelRadius = 1;
+    private previewRadius = 0.85;
+    private torusGeometry: THREE.TorusGeometry;
+    private suzanneGeometry: THREE.BufferGeometry | null = null;
+    private suzanneLoading: Promise<THREE.BufferGeometry> | null = null;
+    private currentGeometryKey = '';
     private keyLight: THREE.DirectionalLight;
     private fillLight: THREE.DirectionalLight;
     private ambient: THREE.AmbientLight;
@@ -47,7 +55,7 @@ export class MatcapScene {
     private previewElement: HTMLElement;
     private previewScene: THREE.Scene;
     private previewCamera: THREE.PerspectiveCamera;
-    private previewTorus: THREE.Mesh<THREE.TorusGeometry, THREE.MeshMatcapMaterial>;
+    private previewMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshMatcapMaterial>;
 
     constructor(container: HTMLElement, previewElement: HTMLElement) {
         this.container = container;
@@ -61,9 +69,9 @@ export class MatcapScene {
         this.camera = new THREE.OrthographicCamera(-this.cameraViewSize, this.cameraViewSize, this.cameraViewSize, -this.cameraViewSize, 0.1, 100);
         this.camera.position.set(0, 0, 5);
 
-        const geometry = new THREE.SphereGeometry(1, 128, 128);
+        const sphereGeometry = new THREE.SphereGeometry(this.modelRadius, 128, 128);
         const material = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.4, metalness: 0.1, dithering: true });
-        this.sphere = new THREE.Mesh(geometry, material);
+        this.sphere = new THREE.Mesh(sphereGeometry, material);
         this.scene.add(this.sphere);
 
         this.ambient = new THREE.AmbientLight(0xffffff, 0.15);
@@ -75,7 +83,7 @@ export class MatcapScene {
         this.fillLight = new THREE.DirectionalLight(0xffffff, 1);
         this.scene.add(this.fillLight);
 
-        const radius = geometry.parameters.radius;
+        const radius = this.modelRadius;
         this.matcapTarget = new THREE.WebGLRenderTarget(512, 512);
         this.matcapCamera = new THREE.OrthographicCamera(-radius, radius, radius, -radius, 0.1, 100);
         this.matcapCamera.position.set(0, 0, 5);
@@ -86,10 +94,11 @@ export class MatcapScene {
         this.previewCamera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
         this.previewCamera.position.set(0, 0, 4);
 
-        const torusGeometry = new THREE.TorusGeometry(0.85, 0.35, 64, 128);
-        const torusMaterial = new THREE.MeshMatcapMaterial({ matcap: this.matcapTarget.texture, dithering: true });
-        this.previewTorus = new THREE.Mesh(torusGeometry, torusMaterial);
-        this.previewScene.add(this.previewTorus);
+        this.torusGeometry = new THREE.TorusGeometry(this.previewRadius, this.previewRadius * 0.4, 64, 128);
+        const previewMaterial = new THREE.MeshMatcapMaterial({ matcap: this.matcapTarget.texture, dithering: true });
+        this.previewMesh = new THREE.Mesh(this.torusGeometry, previewMaterial);
+        this.previewScene.add(this.previewMesh);
+        this.currentGeometryKey = 'torus';
 
         window.addEventListener('resize', () => this.resize());
         this.resize();
@@ -123,8 +132,7 @@ export class MatcapScene {
     private animate = () => {
         requestAnimationFrame(this.animate);
 
-        this.previewTorus.rotation.y += 0.006;
-        this.previewTorus.rotation.x += 0.003;
+        this.previewMesh.rotation.y += 0.006;
 
         // Full-canvas pass (main sphere scene)
         this.renderer.setScissorTest(false);
@@ -142,7 +150,57 @@ export class MatcapScene {
         this.renderer.setScissorTest(false);
     };
 
+    private loadSuzanneGeometry(): Promise<THREE.BufferGeometry> {
+        if (this.suzanneGeometry) {
+            return Promise.resolve(this.suzanneGeometry);
+        }
+        if (!this.suzanneLoading) {
+            this.suzanneLoading = new Promise((resolve, reject) => {
+                new GLTFLoader().load(
+                    '/suzanne.glb',
+                    (gltf) => {
+                        let geometry: THREE.BufferGeometry | null = null;
+                        gltf.scene.traverse((child) => {
+                            if (!geometry && (child as THREE.Mesh).isMesh) {
+                                geometry = (child as THREE.Mesh).geometry;
+                            }
+                        });
+                        if (!geometry) {
+                            reject(new Error('No mesh found in suzanne.glb'));
+                            return;
+                        }
+                        const finalGeometry: THREE.BufferGeometry = geometry;
+                        finalGeometry.center();
+                        this.suzanneGeometry = finalGeometry;
+                        resolve(finalGeometry);
+                    },
+                    undefined,
+                    reject,
+                );
+            });
+        }
+        return this.suzanneLoading;
+    }
+
+    private setGeometry(key: string) {
+        if (key === this.currentGeometryKey) {
+            return;
+        }
+        this.currentGeometryKey = key;
+        if (key === 'suzanne') {
+            this.loadSuzanneGeometry().then((geometry) => {
+                if (this.currentGeometryKey === 'suzanne') {
+                    this.previewMesh.geometry = geometry;
+                }
+            });
+        } else {
+            this.previewMesh.geometry = this.torusGeometry;
+        }
+    }
+
     update(state: SceneState) {
+        this.setGeometry(state.model.geometry);
+
         this.keyLight.color.set(state.key.color);
         this.keyLight.intensity = state.key.intensity;
         this.keyLight.position.copy(lightPosition(state.key.azimuth, state.key.elevation));
@@ -178,7 +236,7 @@ export class MatcapScene {
         exportRenderer.setPixelRatio(1);
 
         // Orthographic, framed exactly to the sphere's radius so it touches every edge.
-        const radius = this.sphere.geometry.parameters.radius;
+        const radius = this.modelRadius;
         const exportCamera = new THREE.OrthographicCamera(-radius, radius, radius, -radius, 0.1, 100);
         exportCamera.position.set(0, 0, 5);
         exportCamera.lookAt(0, 0, 0);
