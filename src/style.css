@@ -30,6 +30,16 @@ body {
   display: block;
 }
 
+#preview {
+  width: 220px;
+  height: 220px;
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  border: 1px solid #3a3a3a;
+  pointer-events: none;
+}
+
 #panel {
   width: 280px;
   flex-shrink: 0;
