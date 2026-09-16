@@ -1,4 +1,4 @@
-import './style.css';
+import './styles/styles.scss';
 import GUI from 'perfect-gui';
 import { MatcapScene, type SceneState } from './scene';
 import { randomInRange, randomColor, hslToHex } from './helpers';
