@@ -16,7 +16,7 @@
     "vite": "^8.3.0"
   },
   "dependencies": {
-    "perfect-gui": "^6.5.0",
+    "perfect-gui": "^6.5.1",
     "three": "^0.186.0"
   }
 }
