@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 
 export type LightState = {
     color: string;
@@ -45,8 +46,8 @@ export class MatcapScene {
     private modelRadius = 1;
     private previewRadius = 0.85;
     private torusGeometry: THREE.TorusGeometry;
-    private suzanneGeometry: THREE.BufferGeometry | null = null;
-    private suzanneLoading: Promise<THREE.BufferGeometry> | null = null;
+    private gltfLoader: GLTFLoader | null = null;
+    private modelGeometries = new Map<string, Promise<THREE.BufferGeometry>>();
     private currentGeometryKey = '';
     private keyLight: THREE.DirectionalLight;
     private fillLight: THREE.DirectionalLight;
@@ -174,14 +175,22 @@ export class MatcapScene {
         this.renderer.setScissorTest(false);
     };
 
-    private loadSuzanneGeometry(): Promise<THREE.BufferGeometry> {
-        if (this.suzanneGeometry) {
-            return Promise.resolve(this.suzanneGeometry);
+    // Lazily creates a GLTFLoader able to decode Draco-compressed meshes (decoder files are bundled by Vite).
+    private getGLTFLoader(): GLTFLoader {
+        if (!this.gltfLoader) {
+            this.gltfLoader = new GLTFLoader().setDRACOLoader(new DRACOLoader());
         }
-        if (!this.suzanneLoading) {
-            this.suzanneLoading = new Promise((resolve, reject) => {
-                new GLTFLoader().load(
-                    '/suzanne.glb',
+        return this.gltfLoader;
+    }
+
+    // Loads the first mesh geometry of public/models/<name>.glb, cached per model name.
+    private loadModelGeometry(name: string): Promise<THREE.BufferGeometry> {
+        let loading = this.modelGeometries.get(name);
+        if (!loading) {
+            const file = `${name}.glb`;
+            loading = new Promise<THREE.BufferGeometry>((resolve, reject) => {
+                this.getGLTFLoader().load(
+                    `/models/${file}`,
                     (gltf) => {
                         let geometry: THREE.BufferGeometry | null = null;
                         gltf.scene.traverse((child) => {
@@ -190,20 +199,22 @@ export class MatcapScene {
                             }
                         });
                         if (!geometry) {
-                            reject(new Error('No mesh found in suzanne.glb'));
+                            reject(new Error(`No mesh found in ${file}`));
                             return;
                         }
                         const finalGeometry: THREE.BufferGeometry = geometry;
                         finalGeometry.center();
-                        this.suzanneGeometry = finalGeometry;
                         resolve(finalGeometry);
                     },
                     undefined,
                     reject,
                 );
             });
+            // Allow a retry if loading failed
+            loading.catch(() => this.modelGeometries.delete(name));
+            this.modelGeometries.set(name, loading);
         }
-        return this.suzanneLoading;
+        return loading;
     }
 
     private setGeometry(key: string) {
@@ -211,15 +222,15 @@ export class MatcapScene {
             return;
         }
         this.currentGeometryKey = key;
-        if (key === 'suzanne') {
-            this.loadSuzanneGeometry().then((geometry) => {
-                if (this.currentGeometryKey === 'suzanne') {
-                    this.previewMesh.geometry = geometry;
-                }
-            });
-        } else {
+        if (key === 'torus') {
             this.previewMesh.geometry = this.torusGeometry;
+            return;
         }
+        this.loadModelGeometry(key).then((geometry) => {
+            if (this.currentGeometryKey === key) {
+                this.previewMesh.geometry = geometry;
+            }
+        });
     }
 
     update(state: SceneState) {

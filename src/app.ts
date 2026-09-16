@@ -67,7 +67,7 @@ const gui = new GUI({
 gui.button({ label: 'Randomize' }).onClick(randomizePreset);
 
 const modelFolder = gui.folder({ label: 'Model' });
-modelFolder.list(state.model, 'geometry', ['torus', 'suzanne'], { label: 'Model' });
+modelFolder.list(state.model, 'geometry', ['torus', 'suzanne', 'dragon'], { label: 'Model' });
 modelFolder.toggle(state.model, 'autorotate', { label: 'Auto-rotate' });
 
 const keyFolder = gui.folder({ label: 'Key Light' });
