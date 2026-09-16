@@ -28,6 +28,8 @@ export type SceneState = {
     background: string;
 };
 
+export type ViewportLayout = 'split' | 'overlay';
+
 function lightPosition(azimuthDeg: number, elevationDeg: number, radius = 5): THREE.Vector3 {
     const az = THREE.MathUtils.degToRad(azimuthDeg);
     const el = THREE.MathUtils.degToRad(elevationDeg);
@@ -56,6 +58,9 @@ export class MatcapScene {
     private previewScene: THREE.Scene;
     private previewCamera: THREE.PerspectiveCamera;
     private previewMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshMatcapMaterial>;
+    private matcapViewport = { x: 0, y: 0, width: 0, height: 0 };
+    private previewViewport = { x: 0, y: 0, width: 0, height: 0 };
+    private layout: ViewportLayout = 'split';
 
     constructor(container: HTMLElement, previewElement: HTMLElement) {
         this.container = container;
@@ -92,7 +97,7 @@ export class MatcapScene {
         this.previewScene = new THREE.Scene();
         this.previewScene.background = new THREE.Color(0x161616);
         this.previewCamera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
-        this.previewCamera.position.set(0, 0, 4);
+        this.previewCamera.position.set(0, 0, 5);
 
         this.torusGeometry = new THREE.TorusGeometry(this.previewRadius, this.previewRadius * 0.4, 64, 128);
         const previewMaterial = new THREE.MeshMatcapMaterial({ matcap: this.matcapTarget.texture, dithering: true });
@@ -105,28 +110,48 @@ export class MatcapScene {
         this.animate();
     }
 
+    setLayout(layout: ViewportLayout) {
+        this.layout = layout;
+        this.updateViewports();
+    }
+
     private resize() {
         const { clientWidth, clientHeight } = this.container;
         this.renderer.setSize(clientWidth, clientHeight);
-
-        const aspect = clientWidth / clientHeight;
-        this.camera.left = -this.cameraViewSize * aspect;
-        this.camera.right = this.cameraViewSize * aspect;
-        this.camera.top = this.cameraViewSize;
-        this.camera.bottom = -this.cameraViewSize;
-        this.camera.updateProjectionMatrix();
+        this.updateViewports();
     }
 
-    private getPreviewViewport() {
+    private updateViewports() {
         const containerRect = this.container.getBoundingClientRect();
         const previewRect = this.previewElement.getBoundingClientRect();
 
-        const x = previewRect.left - containerRect.left;
-        const top = previewRect.top - containerRect.top;
-        const width = previewRect.width;
-        const height = previewRect.height;
+        const previewX = previewRect.left - containerRect.left;
+        const previewTop = previewRect.top - containerRect.top;
+        const previewWidth = previewRect.width;
+        const previewHeight = previewRect.height;
 
-        return { x, y: this.container.clientHeight - top - height, width, height };
+        this.previewViewport = {
+            x: previewX,
+            y: this.container.clientHeight - previewTop - previewHeight,
+            width: previewWidth,
+            height: previewHeight,
+        };
+
+        if (this.layout === 'overlay') {
+            this.matcapViewport = { x: 0, y: 0, width: this.container.clientWidth, height: this.container.clientHeight };
+        } else {
+            const stackedVertically = previewWidth >= this.container.clientWidth - 1;
+            this.matcapViewport = stackedVertically
+                ? { x: 0, y: this.container.clientHeight - previewTop, width: this.container.clientWidth, height: previewTop }
+                : { x: 0, y: 0, width: this.container.clientWidth - previewWidth, height: this.container.clientHeight };
+        }
+
+        const matcapAspect = this.matcapViewport.width / this.matcapViewport.height;
+        this.camera.left = -this.cameraViewSize * matcapAspect;
+        this.camera.right = this.cameraViewSize * matcapAspect;
+        this.camera.top = this.cameraViewSize;
+        this.camera.bottom = -this.cameraViewSize;
+        this.camera.updateProjectionMatrix();
     }
 
     private animate = () => {
@@ -134,17 +159,16 @@ export class MatcapScene {
 
         this.previewMesh.rotation.y += 0.006;
 
-        // Full-canvas pass (main sphere scene)
-        this.renderer.setScissorTest(false);
-        this.renderer.setViewport(0, 0, this.container.clientWidth, this.container.clientHeight);
+        // Scissored matcap sphere pass
+        this.renderer.setScissorTest(true);
+        this.renderer.setScissor(this.matcapViewport.x, this.matcapViewport.y, this.matcapViewport.width, this.matcapViewport.height);
+        this.renderer.setViewport(this.matcapViewport.x, this.matcapViewport.y, this.matcapViewport.width, this.matcapViewport.height);
         this.renderer.render(this.scene, this.camera);
 
-        // Scissored pass (preview torus)
-        const viewport = this.getPreviewViewport();
-        this.renderer.setScissorTest(true);
-        this.renderer.setScissor(viewport.x, viewport.y, viewport.width, viewport.height);
-        this.renderer.setViewport(viewport.x, viewport.y, viewport.width, viewport.height);
-        this.previewCamera.aspect = viewport.width / viewport.height;
+        // Scissored model preview pass
+        this.renderer.setScissor(this.previewViewport.x, this.previewViewport.y, this.previewViewport.width, this.previewViewport.height);
+        this.renderer.setViewport(this.previewViewport.x, this.previewViewport.y, this.previewViewport.width, this.previewViewport.height);
+        this.previewCamera.aspect = this.previewViewport.width / this.previewViewport.height;
         this.previewCamera.updateProjectionMatrix();
         this.renderer.render(this.previewScene, this.previewCamera);
         this.renderer.setScissorTest(false);

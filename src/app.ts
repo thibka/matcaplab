@@ -1,11 +1,12 @@
 import './styles/styles.scss';
 import GUI from 'perfect-gui';
-import { MatcapScene, type SceneState } from './scene';
+import { MatcapScene, type SceneState, type ViewportLayout } from './scene';
 import { randomInRange, randomColor, hslToHex } from './helpers';
 
 const viewport = document.querySelector<HTMLDivElement>('#viewport')!;
 const preview = document.querySelector<HTMLDivElement>('#preview')!;
 const panel = document.querySelector<HTMLDivElement>('#panel')!;
+const layoutButtons = document.querySelectorAll<HTMLButtonElement>('.header__viewport-options .btn');
 
 const state: SceneState = {
     model: { geometry: 'torus', autorotate: true },
@@ -20,6 +21,18 @@ const exportState = { size: '1024' };
 const EXPORT_SIZES = ['256', '512', '1024', '2048', '4096'];
 
 const scene = new MatcapScene(viewport, preview);
+
+function setLayout(layout: ViewportLayout) {
+    viewport.dataset.layout = layout;
+    scene.setLayout(layout);
+    layoutButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.layout === layout));
+}
+
+layoutButtons.forEach((btn) => {
+    btn.addEventListener('click', () => setLayout(btn.dataset.layout as ViewportLayout));
+});
+
+setLayout('split');
 
 function refresh() {
     scene.update(state);
