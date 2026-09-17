@@ -12,13 +12,12 @@ const state: SceneState = {
     model: { geometry: 'torus', autorotate: true },
     key: { color: '#ffffff', intensity: 2, azimuth: -40, elevation: 40 },
     fill: { color: '#88aaff', intensity: 0.6, azimuth: 130, elevation: -20 },
-    ambient: { color: '#ffffff', intensity: 0.35 },
-    material: { color: '#ffffff', roughness: 0.4, metalness: 0.1, envMap: 'none', envMapIntensity: 1 },
+    ambient: { color: '#ffffff', intensity: 0.1 },
+    material: { color: '#ffffff', roughness: 0.5, metalness: 0.5, envMap: 'none', envMapIntensity: 1 },
     exportSize: 512,
 };
 
 const EXPORT_SIZES = [256, 512, 1024, 2048, 4096];
-const ENV_MAP_KEYS = Object.keys(ENV_MAPS);
 
 const scene = new MatcapScene(viewport, preview);
 
@@ -66,9 +65,29 @@ const gui = new GUI({
 
 gui.button({ label: 'Randomize' }).onClick(randomizePreset);
 
+const exportFolder = gui.folder({ label: 'Export' });
+exportFolder.list(state, 'exportSize', EXPORT_SIZES, { label: 'Size' });
+exportFolder.button({ label: 'Export PNG' }).onClick(() => {
+    const size = state.exportSize;
+    scene.exportPNG(size, `matcap-${size}.png`);
+});
+
 const modelFolder = gui.folder({ label: 'Model' });
 modelFolder.list(state.model, 'geometry', ['torus', 'suzanne', 'dragon'], { label: 'Model' });
 modelFolder.toggle(state.model, 'autorotate', { label: 'Auto-rotate' });
+
+const envMapFolder = gui.folder({ label: 'Environment Map' });
+ENV_MAPS.forEach((option) => {
+    envMapFolder
+        .image(option.thumbnail, { 
+            label: option.label, 
+            selected: state.material.envMap === option.key,
+            height: 50,
+        })
+        .onClick(() => {
+            state.material.envMap = option.key;
+        });
+});
 
 const keyFolder = gui.folder({ label: 'Key Light' });
 keyFolder.color(state.key, 'color', { label: 'Color' });
@@ -90,14 +109,8 @@ const materialFolder = gui.folder({ label: 'Material' });
 materialFolder.color(state.material, 'color', { label: 'Color' });
 materialFolder.slider(state.material, 'roughness', { label: 'Roughness', min: 0, max: 1, step: 0.01 });
 materialFolder.slider(state.material, 'metalness', { label: 'Metalness', min: 0, max: 1, step: 0.01 });
-materialFolder.list(state.material, 'envMap', ENV_MAP_KEYS, { label: 'Env Map' });
 materialFolder.slider(state.material, 'envMapIntensity', { label: 'Env Intensity', min: 0, max: 3, step: 0.01 });
 
-const exportFolder = gui.folder({ label: 'Export' });
-exportFolder.list(state, 'exportSize', EXPORT_SIZES, { label: 'Size' });
-exportFolder.button({ label: 'Export PNG' }).onClick(() => {
-    const size = state.exportSize;
-    scene.exportPNG(size, `matcap-${size}.png`);
-});
+
 
 refresh();

@@ -18,9 +18,72 @@ export type MaterialState = {
     envMapIntensity: number;
 };
 
-export const ENV_MAPS: Record<string, string> = {
-    none: '',
-    theater: 'theater_01_1k.hdr',
+export type EnvMapOption = {
+    key: string;
+    label: string;
+    /** Poly Haven asset slug (e.g. "theater_01"), empty for the "no env map" option. */
+    slug: string;
+    thumbnail: string;
+};
+
+const NONE_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkBAMAAACCzIhnAAAALVBMVEUAAABQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFD0f7CQAAAADnRSTlMAEM/vcN8gkIA8n69gv9AeqN0AAAGeSURBVFjD7ZW7SgNBFIbPelmDiCxJL6ayEIIBCxuDYmUTrERUZBt78QFCQCxsrCysxMbSIIKt2Nja2IvmQkxivmcwE8Lu6c4+wHzVDuw/35kLZ8Tj8Xg8HsfNS6W1eiXZCS4YcxiPvh/jLIkaE/qx5HkSmx0SjoMS93ZiDsU5zcgu6wvY3I2Cm1ccRVsyBWyMZw4vwUlMatCd/BY2oGsnFoAtmVAYDyxO4S9ZVgkom5GGmjdPB7uyEPpKUqyBtf552E8lzagAdSMyC3UlkRysGZE7iJVEggo9I3LNQEtEvmgbkVfaWiJSZWBESvS0xFXaMSIVfpRkxBItIwLfqcSxCHYklaQRo7BUkq2wE3pa4pbftDdZSTJtcpWhlrg5fs0L04q0JMS8MNNQ15Ic7BmRHJSVRE4x+1gAXSWRBsR2g+EklcxAXywKoCQfsG9GZoCyHrxlan39OHkCjAaT9q6DOHlmlu1IHsfAtfFPYBhlkaygOMsiaUbvJKyLTZWia/gTupHYfLgzCR+A5JmxWNgWx+1zpXW0Kx6Px+PxjPgHBlQp+dv2kycAAAAASUVORK5CYII=";
+
+// Available environment maps, sourced live from the Poly Haven API. 'none' disables the effect.
+export const ENV_MAPS: EnvMapOption[] = [
+    { key: 'none', label: 'None', slug: '', thumbnail: NONE_THUMBNAIL },
+    {
+        key: 'theater',
+        label: 'Theater',
+        slug: 'theater_01',
+        thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/theater_01.png?height=100',
+    },
+    {
+        key: 'syferfontein',
+        label: 'Syfer Fontein',
+        slug: 'syferfontein_1d_clear_puresky',
+        thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/syferfontein_1d_clear_puresky.png?height=100',
+    },
+    {
+        key: 'the_sky_is_on_fire_',
+        label: 'The Sky Is On Fire',
+        slug: 'the_sky_is_on_fire',
+        thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/the_sky_is_on_fire.png?height=100',
+    },
+    {
+        key: 'warm_bar',
+        label: 'Warm Bar',
+        slug: 'warm_bar',
+        thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/warm_bar.png?height=100',
+    },
+    {
+        key: 'whipple_creek_regional_park_04',
+        label: 'Whipple Creek Regional Park',
+        slug: 'whipple_creek_regional_park_04',
+        thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/whipple_creek_regional_park_04.png?height=100',
+    },
+    {
+        key: 'wooden_studio_10',
+        label: 'Wooden Studio',
+        slug: 'wooden_studio_10',
+        thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/wooden_studio_10.png?height=100',
+    },
+    {
+        key: 'wrestling_gym',
+        label: 'Wrestling Gym',
+        slug: 'wrestling_gym',
+        thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/wrestling_gym.png?height=100',
+    },
+    {
+        key: 'golden_bay',
+        label: 'Golden Bay',
+        slug: 'golden_bay',
+        thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/golden_bay.png?height=100',
+    },
+];
+
+// Shape of the relevant subset of https://api.polyhaven.com/files/<slug>
+type PolyHavenFilesResponse = {
+    hdri?: Record<string, { hdr?: { url: string } }>;
 };
 
 export type AmbientState = {
@@ -228,30 +291,47 @@ export class MatcapScene {
                     reject,
                 );
             });
-            // Allow a retry if loading failed
+            // Evict the failed entry so a future call retries instead of reusing the rejected promise.
             loading.catch(() => this.modelGeometries.delete(name));
             this.modelGeometries.set(name, loading);
         }
         return loading;
     }
 
-    private loadEnvMapTexture(file: string): Promise<THREE.Texture> {
-        let loading = this.envMapTextures.get(file);
+    private async resolvePolyHavenHdrUrl(slug: string): Promise<string> {
+        const response = await fetch(`https://api.polyhaven.com/files/${slug}`);
+        if (!response.ok) {
+            throw new Error(`Poly Haven files request failed for "${slug}" (${response.status})`);
+        }
+        const data: PolyHavenFilesResponse = await response.json();
+        const resolutions = Object.entries(data.hdri ?? {}).sort(([a], [b]) => parseInt(a) - parseInt(b));
+        const url = resolutions[0]?.[1]?.hdr?.url;
+        if (!url) {
+            throw new Error(`No .hdr file found for Poly Haven asset "${slug}"`);
+        }
+        return url;
+    }
+
+    private loadEnvMapTexture(slug: string): Promise<THREE.Texture> {
+        let loading = this.envMapTextures.get(slug);
         if (!loading) {
-            loading = new Promise<THREE.Texture>((resolve, reject) => {
-                this.hdrLoader.load(
-                    `/textures/${file}`,
-                    (texture) => {
-                        const envMap = this.pmremGenerator.fromEquirectangular(texture).texture;
-                        texture.dispose();
-                        resolve(envMap);
-                    },
-                    undefined,
-                    reject,
-                );
-            });
-            loading.catch(() => this.envMapTextures.delete(file));
-            this.envMapTextures.set(file, loading);
+            loading = this.resolvePolyHavenHdrUrl(slug).then(
+                (url) =>
+                    new Promise<THREE.Texture>((resolve, reject) => {
+                        this.hdrLoader.load(
+                            url,
+                            (texture) => {
+                                const envMap = this.pmremGenerator.fromEquirectangular(texture).texture;
+                                texture.dispose();
+                                resolve(envMap);
+                            },
+                            undefined,
+                            reject,
+                        );
+                    }),
+            );
+            loading.catch(() => this.envMapTextures.delete(slug));
+            this.envMapTextures.set(slug, loading);
         }
         return loading;
     }
@@ -262,14 +342,14 @@ export class MatcapScene {
         }
         this.currentEnvMapKey = key;
 
-        const file = ENV_MAPS[key];
-        if (!file) {
+        const slug = ENV_MAPS.find((option) => option.key === key)?.slug;
+        if (!slug) {
             this.scene.environment = null;
             this.sphere.material.envMap = null;
             this.sphere.material.needsUpdate = true;
             return;
         }
-        this.loadEnvMapTexture(file).then((texture) => {
+        this.loadEnvMapTexture(slug).then((texture) => {
             if (this.currentEnvMapKey === key) {
                 this.scene.environment = texture;
                 this.sphere.material.envMap = texture;
