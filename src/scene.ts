@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 
 export type LightState = {
     color: string;
@@ -13,6 +14,13 @@ export type MaterialState = {
     color: string;
     roughness: number;
     metalness: number;
+    envMap: string;
+    envMapIntensity: number;
+};
+
+export const ENV_MAPS: Record<string, string> = {
+    none: '',
+    theater: 'theater_01_1k.hdr',
 };
 
 export type AmbientState = {
@@ -48,6 +56,10 @@ export class MatcapScene {
     private torusGeometry: THREE.TorusGeometry;
     private gltfLoader: GLTFLoader | null = null;
     private modelGeometries = new Map<string, Promise<THREE.BufferGeometry>>();
+    private hdrLoader: HDRLoader;
+    private pmremGenerator: THREE.PMREMGenerator;
+    private envMapTextures = new Map<string, Promise<THREE.Texture>>();
+    private currentEnvMapKey = '';
     private autoRotate = true;
     private currentGeometryKey = '';
     private keyLight: THREE.DirectionalLight;
@@ -70,6 +82,9 @@ export class MatcapScene {
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setPixelRatio(window.devicePixelRatio);
         container.appendChild(this.renderer.domElement);
+        this.hdrLoader = new HDRLoader();
+        this.pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+        this.pmremGenerator.compileEquirectangularShader();
 
         this.scene = new THREE.Scene();
         this.cameraViewSize = 1.6;
@@ -220,6 +235,50 @@ export class MatcapScene {
         return loading;
     }
 
+    private loadEnvMapTexture(file: string): Promise<THREE.Texture> {
+        let loading = this.envMapTextures.get(file);
+        if (!loading) {
+            loading = new Promise<THREE.Texture>((resolve, reject) => {
+                this.hdrLoader.load(
+                    `/textures/${file}`,
+                    (texture) => {
+                        const envMap = this.pmremGenerator.fromEquirectangular(texture).texture;
+                        texture.dispose();
+                        resolve(envMap);
+                    },
+                    undefined,
+                    reject,
+                );
+            });
+            loading.catch(() => this.envMapTextures.delete(file));
+            this.envMapTextures.set(file, loading);
+        }
+        return loading;
+    }
+
+    private setEnvMap(key: string) {
+        if (key === this.currentEnvMapKey) {
+            return;
+        }
+        this.currentEnvMapKey = key;
+
+        const file = ENV_MAPS[key];
+        if (!file) {
+            this.scene.environment = null;
+            this.sphere.material.envMap = null;
+            this.sphere.material.needsUpdate = true;
+            return;
+        }
+        this.loadEnvMapTexture(file).then((texture) => {
+            if (this.currentEnvMapKey === key) {
+                this.scene.environment = texture;
+                this.sphere.material.envMap = texture;
+                this.sphere.material.needsUpdate = true;
+                this.renderMatcap();
+            }
+        });
+    }
+
     private setGeometry(key: string) {
         if (key === this.currentGeometryKey) {
             return;
@@ -254,6 +313,8 @@ export class MatcapScene {
         this.sphere.material.color.set(state.material.color);
         this.sphere.material.roughness = state.material.roughness;
         this.sphere.material.metalness = state.material.metalness;
+        this.setEnvMap(state.material.envMap);
+        this.sphere.material.envMapIntensity = state.material.envMapIntensity;
 
         this.scene.background = new THREE.Color(0x000000);
 
