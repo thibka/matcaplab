@@ -26,7 +26,7 @@ export type SceneState = {
     fill: LightState;
     ambient: AmbientState;
     material: MaterialState;
-    background: string;
+    exportSize: number;
 };
 
 export type ViewportLayout = 'split' | 'overlay';
@@ -48,6 +48,7 @@ export class MatcapScene {
     private torusGeometry: THREE.TorusGeometry;
     private gltfLoader: GLTFLoader | null = null;
     private modelGeometries = new Map<string, Promise<THREE.BufferGeometry>>();
+    private autoRotate = true;
     private currentGeometryKey = '';
     private keyLight: THREE.DirectionalLight;
     private fillLight: THREE.DirectionalLight;
@@ -158,7 +159,9 @@ export class MatcapScene {
     private animate = () => {
         requestAnimationFrame(this.animate);
 
-        this.previewMesh.rotation.y += 0.006;
+        if (this.autoRotate) {
+            this.previewMesh.rotation.y += 0.006;
+        }
 
         // Scissored matcap sphere pass
         this.renderer.setScissorTest(true);
@@ -235,6 +238,7 @@ export class MatcapScene {
 
     update(state: SceneState) {
         this.setGeometry(state.model.geometry);
+        this.autoRotate = state.model.autorotate;
 
         this.keyLight.color.set(state.key.color);
         this.keyLight.intensity = state.key.intensity;
@@ -251,7 +255,7 @@ export class MatcapScene {
         this.sphere.material.roughness = state.material.roughness;
         this.sphere.material.metalness = state.material.metalness;
 
-        this.scene.background = new THREE.Color(state.background);
+        this.scene.background = new THREE.Color(0x000000);
 
         this.renderMatcap();
     }

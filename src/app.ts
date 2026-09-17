@@ -14,11 +14,10 @@ const state: SceneState = {
     fill: { color: '#88aaff', intensity: 0.6, azimuth: 130, elevation: -20 },
     ambient: { color: '#ffffff', intensity: 0.35 },
     material: { color: '#ffffff', roughness: 0.4, metalness: 0.1 },
-    background: '#000000',
+    exportSize: 512,
 };
 
-const exportState = { size: '1024' };
-const EXPORT_SIZES = ['256', '512', '1024', '2048', '4096'];
+const EXPORT_SIZES = [256, 512, 1024, 2048, 4096];
 
 const scene = new MatcapScene(viewport, preview);
 
@@ -91,13 +90,10 @@ materialFolder.color(state.material, 'color', { label: 'Color' });
 materialFolder.slider(state.material, 'roughness', { label: 'Roughness', min: 0, max: 1, step: 0.01 });
 materialFolder.slider(state.material, 'metalness', { label: 'Metalness', min: 0, max: 1, step: 0.01 });
 
-const backgroundFolder = gui.folder({ label: 'Background' });
-backgroundFolder.color(state, 'background', { label: 'Color' });
-
 const exportFolder = gui.folder({ label: 'Export' });
-exportFolder.list(exportState, 'size', EXPORT_SIZES, { label: 'Size' });
+exportFolder.list(state, 'exportSize', EXPORT_SIZES, { label: 'Size' });
 exportFolder.button({ label: 'Export PNG' }).onClick(() => {
-    const size = parseInt(exportState.size, 10);
+    const size = state.exportSize;
     scene.exportPNG(size, `matcap-${size}.png`);
 });
 
