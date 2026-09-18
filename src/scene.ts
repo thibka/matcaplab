@@ -2,29 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
-
-export type LightState = {
-    color: string;
-    intensity: number;
-    azimuth: number;
-    elevation: number;
-};
-
-export type MaterialState = {
-    color: string;
-    roughness: number;
-    metalness: number;
-    envMap: string;
-    envMapIntensity: number;
-};
-
-export type EnvMapOption = {
-    key: string;
-    label: string;
-    /** Poly Haven asset slug (e.g. "theater_01"), empty for the "no env map" option. */
-    slug: string;
-    thumbnail: string;
-};
+import type { EnvMapOption, PolyHavenFilesResponse, SceneState, ViewportLayout } from './types';
 
 const NONE_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkBAMAAACCzIhnAAAALVBMVEUAAABQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFD0f7CQAAAADnRSTlMAEM/vcN8gkIA8n69gv9AeqN0AAAGeSURBVFjD7ZW7SgNBFIbPelmDiCxJL6ayEIIBCxuDYmUTrERUZBt78QFCQCxsrCysxMbSIIKt2Nja2IvmQkxivmcwE8Lu6c4+wHzVDuw/35kLZ8Tj8Xg8HsfNS6W1eiXZCS4YcxiPvh/jLIkaE/qx5HkSmx0SjoMS93ZiDsU5zcgu6wvY3I2Cm1ccRVsyBWyMZw4vwUlMatCd/BY2oGsnFoAtmVAYDyxO4S9ZVgkom5GGmjdPB7uyEPpKUqyBtf552E8lzagAdSMyC3UlkRysGZE7iJVEggo9I3LNQEtEvmgbkVfaWiJSZWBESvS0xFXaMSIVfpRkxBItIwLfqcSxCHYklaQRo7BUkq2wE3pa4pbftDdZSTJtcpWhlrg5fs0L04q0JMS8MNNQ15Ic7BmRHJSVRE4x+1gAXSWRBsR2g+EklcxAXywKoCQfsG9GZoCyHrxlan39OHkCjAaT9q6DOHlmlu1IHsfAtfFPYBhlkaygOMsiaUbvJKyLTZWia/gTupHYfLgzCR+A5JmxWNgWx+1zpXW0Kx6Px+PxjPgHBlQp+dv2kycAAAAASUVORK5CYII=";
 
@@ -80,27 +58,6 @@ export const ENV_MAPS: EnvMapOption[] = [
         thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/golden_bay.png?height=100',
     },
 ];
-
-// Shape of the relevant subset of https://api.polyhaven.com/files/<slug>
-type PolyHavenFilesResponse = {
-    hdri?: Record<string, { hdr?: { url: string } }>;
-};
-
-export type AmbientState = {
-    color: string;
-    intensity: number;
-};
-
-export type SceneState = {
-    model: { geometry: string; autorotate: boolean };
-    key: LightState;
-    fill: LightState;
-    ambient: AmbientState;
-    material: MaterialState;
-    exportSize: number;
-};
-
-export type ViewportLayout = 'split' | 'overlay';
 
 function lightPosition(azimuthDeg: number, elevationDeg: number, radius = 5): THREE.Vector3 {
     const az = THREE.MathUtils.degToRad(azimuthDeg);

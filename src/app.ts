@@ -1,6 +1,7 @@
 import './styles/styles.scss';
 import GUI from 'perfect-gui';
-import { MatcapScene, ENV_MAPS, type SceneState, type ViewportLayout } from './scene';
+import { MatcapScene, ENV_MAPS } from './scene';
+import type { SceneState, ViewportLayout } from './types';
 import { randomInRange, randomColor, hslToHex } from './helpers';
 
 const viewport = document.querySelector<HTMLDivElement>('#viewport')!;
