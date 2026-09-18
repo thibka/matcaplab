@@ -32,7 +32,7 @@ layoutButtons.forEach((btn) => {
     btn.addEventListener('click', () => setLayout(btn.dataset.layout as ViewportLayout));
 });
 
-setLayout('split');
+setLayout('overlay');
 
 function refresh() {
     scene.update(state);
@@ -49,9 +49,16 @@ function randomizePreset() {
     state.fill.azimuth = randomInRange(-180, 180, 0);
     state.fill.elevation = randomInRange(-60, 10, 0);
 
+    state.ambient.color = hslToHex(randomColor());
+    state.ambient.intensity = randomInRange(0, 1, 2);
+
     state.material.color = hslToHex(randomColor());
     state.material.roughness = randomInRange(0.1, 0.8, 2);
     state.material.metalness = randomInRange(0, 0.6, 2);
+
+    const randomEnvMap = ENV_MAPS[Math.floor(Math.random() * ENV_MAPS.length)];
+    selectEnvMap(randomEnvMap.slug);
+    state.material.envMapIntensity = randomInRange(0, 3, 2);
 
     refresh();
 }
@@ -63,6 +70,7 @@ const gui = new GUI({
     width: 280,
     collapsible: false,
     onUpdate: refresh,
+    label: 'Settings'
 });
 
 gui.button({ label: 'Randomize' }).onClick(randomizePreset);
@@ -79,17 +87,28 @@ modelFolder.list(state.model, 'geometry', ['torus', 'suzanne', 'dragon'], { labe
 modelFolder.toggle(state.model, 'autorotate', { label: 'Auto-rotate' });
 
 const envMapFolder = gui.folder({ label: 'Environment Map' });
-ENV_MAPS.forEach((option) => {
-    envMapFolder
-        .image(option.thumbnail, {
-            label: option.label,
-            selected: state.material.envMap === option.slug,
-            height: 50,
-        })
-        .onClick(() => {
-            state.material.envMap = option.slug;
-        });
+const envMapImages = ENV_MAPS.map((option) => {
+    const image = envMapFolder.image(option.thumbnail, {
+        label: option.label,
+        selected: state.material.envMap === option.slug,
+        height: 50,
+    });
+    image.onClick(() => {
+        state.material.envMap = option.slug;
+    });
+    return { slug: option.slug, element: image.element };
 });
+
+// Selects an env map both in state and in the image buttons' visual selection (needed when triggered
+// programmatically, e.g. by randomizePreset, since clicking an image already updates its own state).
+function selectEnvMap(slug: string) {
+    state.material.envMap = slug;
+    envMapImages.forEach(({ slug: optionSlug, element }) => {
+        const selected = optionSlug === slug;
+        element.classList.toggle('p-gui__image--selected', selected);
+        element.setAttribute('aria-pressed', String(selected));
+    });
+}
 
 const keyFolder = gui.folder({ label: 'Key Light' });
 keyFolder.color(state.key, 'color', { label: 'Color' });
