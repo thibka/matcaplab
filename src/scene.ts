@@ -129,7 +129,7 @@ export class MatcapScene {
         this.previewCamera.position.set(0, 0, 5);
 
         this.torusGeometry = new THREE.TorusGeometry(this.previewRadius, this.previewRadius * 0.4, 64, 128);
-        const previewNormalMap = new THREE.TextureLoader().load('/textures/Concrete047A_1K-JPG_NormalGL.jpg');
+        const previewNormalMap = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}textures/Concrete047A_1K-JPG_NormalGL.jpg`);
         previewNormalMap.wrapS = THREE.RepeatWrapping;
         previewNormalMap.wrapT = THREE.RepeatWrapping;
         const previewMaterial = new THREE.MeshMatcapMaterial({
