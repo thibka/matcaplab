@@ -8,51 +8,43 @@ const NONE_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkBA
 
 // Available environment maps, sourced live from the Poly Haven API. 'none' disables the effect.
 export const ENV_MAPS: EnvMapOption[] = [
-    { key: 'none', label: 'None', slug: '', thumbnail: NONE_THUMBNAIL },
+    { label: 'None', slug: '', thumbnail: NONE_THUMBNAIL },
     {
-        key: 'theater',
         label: 'Theater',
         slug: 'theater_01',
         thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/theater_01.png?height=100',
     },
     {
-        key: 'syferfontein',
         label: 'Syfer Fontein',
         slug: 'syferfontein_1d_clear_puresky',
         thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/syferfontein_1d_clear_puresky.png?height=100',
     },
     {
-        key: 'the_sky_is_on_fire_',
         label: 'The Sky Is On Fire',
         slug: 'the_sky_is_on_fire',
         thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/the_sky_is_on_fire.png?height=100',
     },
     {
-        key: 'warm_bar',
         label: 'Warm Bar',
         slug: 'warm_bar',
         thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/warm_bar.png?height=100',
     },
     {
-        key: 'whipple_creek_regional_park_04',
         label: 'Whipple Creek Regional Park',
         slug: 'whipple_creek_regional_park_04',
         thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/whipple_creek_regional_park_04.png?height=100',
     },
     {
-        key: 'wooden_studio_10',
         label: 'Wooden Studio',
         slug: 'wooden_studio_10',
         thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/wooden_studio_10.png?height=100',
     },
     {
-        key: 'wrestling_gym',
         label: 'Wrestling Gym',
         slug: 'wrestling_gym',
         thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/wrestling_gym.png?height=100',
     },
     {
-        key: 'golden_bay',
         label: 'Golden Bay',
         slug: 'golden_bay',
         thumbnail: 'https://cdn.polyhaven.com/asset_img/primary/golden_bay.png?height=100',
@@ -79,7 +71,7 @@ export class MatcapScene {
     private hdrLoader: HDRLoader;
     private pmremGenerator: THREE.PMREMGenerator;
     private envMapTextures = new Map<string, Promise<THREE.Texture>>();
-    private currentEnvMapKey = '';
+    private currentEnvMapSlug = '';
     private autoRotate = true;
     private currentGeometryKey = '';
     private keyLight: THREE.DirectionalLight;
@@ -293,13 +285,12 @@ export class MatcapScene {
         return loading;
     }
 
-    private setEnvMap(key: string) {
-        if (key === this.currentEnvMapKey) {
+    private setEnvMap(slug: string) {
+        if (slug === this.currentEnvMapSlug) {
             return;
         }
-        this.currentEnvMapKey = key;
+        this.currentEnvMapSlug = slug;
 
-        const slug = ENV_MAPS.find((option) => option.key === key)?.slug;
         if (!slug) {
             this.scene.environment = null;
             this.sphere.material.envMap = null;
@@ -307,7 +298,7 @@ export class MatcapScene {
             return;
         }
         this.loadEnvMapTexture(slug).then((texture) => {
-            if (this.currentEnvMapKey === key) {
+            if (this.currentEnvMapSlug === slug) {
                 this.scene.environment = texture;
                 this.sphere.material.envMap = texture;
                 this.sphere.material.needsUpdate = true;

@@ -14,7 +14,7 @@ const state: SceneState = {
     key: { color: '#ffffff', intensity: 2, azimuth: -40, elevation: 40 },
     fill: { color: '#88aaff', intensity: 0.6, azimuth: 130, elevation: -20 },
     ambient: { color: '#ffffff', intensity: 0.1 },
-    material: { color: '#ffffff', roughness: 0.5, metalness: 0.5, envMap: 'none', envMapIntensity: 1 },
+    material: { color: '#ffffff', roughness: 0.5, metalness: 0.5, envMap: '', envMapIntensity: 1 },
     exportSize: 512,
 };
 
@@ -61,6 +61,7 @@ const gui = new GUI({
     position: 'top left',
     draggable: false,
     width: 280,
+    collapsible: false,
     onUpdate: refresh,
 });
 
@@ -80,13 +81,13 @@ modelFolder.toggle(state.model, 'autorotate', { label: 'Auto-rotate' });
 const envMapFolder = gui.folder({ label: 'Environment Map' });
 ENV_MAPS.forEach((option) => {
     envMapFolder
-        .image(option.thumbnail, { 
-            label: option.label, 
-            selected: state.material.envMap === option.key,
+        .image(option.thumbnail, {
+            label: option.label,
+            selected: state.material.envMap === option.slug,
             height: 50,
         })
         .onClick(() => {
-            state.material.envMap = option.key;
+            state.material.envMap = option.slug;
         });
 });
 

@@ -14,9 +14,7 @@ export type MaterialState = {
 };
 
 export type EnvMapOption = {
-    key: string;
     label: string;
-    /** Poly Haven asset slug (e.g. "theater_01"), empty for the "no env map" option. */
     slug: string;
     thumbnail: string;
 };
