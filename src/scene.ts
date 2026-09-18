@@ -359,24 +359,30 @@ export class MatcapScene {
 
     // Renders the current sphere setup to a square PNG and triggers a download.
     exportPNG(size: number, filename: string) {
-        const exportRenderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-        exportRenderer.setSize(size, size);
-        exportRenderer.setPixelRatio(1);
+        const prevPixelRatio = this.renderer.getPixelRatio();
+        const prevSize = new THREE.Vector2();
+        this.renderer.getSize(prevSize);
 
-        // Orthographic, framed exactly to the sphere's radius so it touches every edge.
+        // Orthographic, framed exactly to the sphere's radius
         const radius = this.modelRadius;
         const exportCamera = new THREE.OrthographicCamera(-radius, radius, radius, -radius, 0.1, 100);
         exportCamera.position.set(0, 0, 5);
         exportCamera.lookAt(0, 0, 0);
 
-        exportRenderer.render(this.scene, exportCamera);
-        const dataUrl = exportRenderer.domElement.toDataURL('image/png');
+        this.renderer.setPixelRatio(1);
+        this.renderer.setSize(size, size, false);
+        this.renderer.setScissorTest(false);
+        this.renderer.setViewport(0, 0, size, size);
+        this.renderer.render(this.scene, exportCamera);
+        const dataUrl = this.renderer.domElement.toDataURL('image/png');
+
+        this.renderer.setPixelRatio(prevPixelRatio);
+        this.renderer.setSize(prevSize.x, prevSize.y, false);
+        this.updateViewports();
 
         const link = document.createElement('a');
         link.href = dataUrl;
         link.download = filename;
         link.click();
-
-        exportRenderer.dispose();
     }
 }

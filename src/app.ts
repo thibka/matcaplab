@@ -58,7 +58,7 @@ function randomizePreset() {
 
     const randomEnvMap = ENV_MAPS[Math.floor(Math.random() * ENV_MAPS.length)];
     selectEnvMap(randomEnvMap.slug);
-    state.material.envMapIntensity = randomInRange(0, 3, 2);
+    state.material.envMapIntensity = randomInRange(0, 1.5, 1);
 
     refresh();
 }
@@ -130,7 +130,7 @@ const materialFolder = gui.folder({ label: 'Material' });
 materialFolder.color(state.material, 'color', { label: 'Color' });
 materialFolder.slider(state.material, 'roughness', { label: 'Roughness', min: 0, max: 1, step: 0.01 });
 materialFolder.slider(state.material, 'metalness', { label: 'Metalness', min: 0, max: 1, step: 0.01 });
-materialFolder.slider(state.material, 'envMapIntensity', { label: 'Env Intensity', min: 0, max: 3, step: 0.01 });
+materialFolder.slider(state.material, 'envMapIntensity', { label: 'Env Intensity', min: 0, max: 1.5, step: 0.01 });
 
 
 
