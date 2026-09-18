@@ -227,7 +227,7 @@ export class MatcapScene {
             const file = `${name}.glb`;
             loading = new Promise<THREE.BufferGeometry>((resolve, reject) => {
                 this.getGLTFLoader().load(
-                    `/models/${file}`,
+                    `${import.meta.env.BASE_URL}models/${file}`,
                     (gltf) => {
                         let geometry: THREE.BufferGeometry | null = null;
                         gltf.scene.traverse((child) => {
