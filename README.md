@@ -2,7 +2,9 @@
 
 #### Video Demo: https://www.youtube.com/watch?v=ezj7XrKp8Dg
 
-#### Description: This is a matcap generator. https://thibka.github.io/matcaplab/
+#### Description: A WebGL-based matcap generator with live lighting controls and PNG export. 
+
+https://thibka.github.io/matcaplab/
 
 #### Context
 
