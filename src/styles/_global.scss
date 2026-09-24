@@ -86,3 +86,23 @@ body {
     background: #222;
     border-left: 1px solid #333;
 }
+
+#desktop-only {
+    display: none;
+}
+
+@media (max-width: 599px) {
+    #app {
+        display: none;
+    }
+
+    #desktop-only {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        padding: 24px;
+        text-align: center;
+        line-height: 1.5;
+    }
+}
