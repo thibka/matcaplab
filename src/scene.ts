@@ -171,6 +171,7 @@ export class MatcapScene {
         this.pmremGenerator.compileEquirectangularShader();
 
         this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x000000);
         this.cameraViewSize = 1.6;
         this.camera = new THREE.OrthographicCamera(-this.cameraViewSize, this.cameraViewSize, this.cameraViewSize, -this.cameraViewSize, 0.1, 100);
         this.camera.position.set(0, 0, 5);
@@ -658,8 +659,6 @@ export class MatcapScene {
         this.updateSphereMaterial(state);
         this.setEnvMap(state.material.envMap);
         this.scene.environmentIntensity = state.material.envMapIntensity;
-
-        this.scene.background = new THREE.Color(0x000000);
 
         this.renderMatcap();
     }

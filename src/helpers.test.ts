@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomColor, randomInRange } from './helpers';
 
@@ -33,19 +34,23 @@ describe('randomInRange', () => {
 });
 
 describe('randomColor', () => {
-    it('returns a valid CSS hsl() string', () => {
+    it('returns a hex color', () => {
         for (let i = 0; i < 100; i++) {
-            const match = randomColor().match(/^hsl\((\d+), (\d+)%, (\d+)%\)$/);
-            expect(match).not.toBeNull();
-            const [hue, saturation, lightness] = match!.slice(1).map(Number);
-            expect(hue).toBeLessThanOrEqual(360);
-            expect(saturation).toBeLessThanOrEqual(100);
-            expect(lightness).toBeLessThanOrEqual(100);
+            expect(randomColor()).toMatch(/^#[0-9a-f]{6}$/);
         }
     });
 
-    it('builds the color from three random draws', () => {
-        vi.spyOn(Math, 'random').mockReturnValueOnce(0.5).mockReturnValueOnce(0.25).mockReturnValueOnce(0.75);
-        expect(randomColor()).toBe('hsl(180, 25%, 75%)');
+    it('stays within the given lightness range', () => {
+        for (let i = 0; i < 100; i++) {
+            const color = new THREE.Color(randomColor([0, 1], [0.4, 0.6]));
+            const { l } = color.getHSL({ h: 0, s: 0, l: 0 }, THREE.SRGBColorSpace);
+            expect(l).toBeGreaterThanOrEqual(0.39);
+            expect(l).toBeLessThanOrEqual(0.61);
+        }
+    });
+
+    it('gives black for zero lightness and white for full lightness', () => {
+        expect(randomColor([0, 1], [0, 0])).toBe('#000000');
+        expect(randomColor([0, 1], [1, 1])).toBe('#ffffff');
     });
 });
