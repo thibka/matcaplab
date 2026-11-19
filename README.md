@@ -1,4 +1,4 @@
-# Matcap Creator
+# MatcapLab
 
 #### Video Demo: https://www.youtube.com/watch?v=ezj7XrKp8Dg
 
@@ -17,30 +17,36 @@ I created this tool because I wanted to have a way to generate matcaps quickly, 
 
 #### Walk-through
 
-When opening the app, you'll see a live-rendered sphere in the viewport with a rotating torus preview showing how the matcap will look once applied to a geometry.
+When opening the app, you'll see a live-rendered sphere in the viewport with a rotating preview model showing how the matcap will look once applied to a geometry. The preview model can be a torus, Suzanne (Blender's monkey head), a dragon, or your own `.glb` file (load it from the GUI or drop it anywhere), and auto-rotation can be turned off. The header buttons switch between two layouts: the preview overlaid on the sphere, or side by side.
 
-You can tweak the settings through the GUI panel on the right, or hit Randomize to get a fresh lighting preset.
+You can tweak the key, fill, rim and ambient lights, the material (standard, physical, phong, toon or lambert) and the environment map through the GUI panel on the right, or hit Randomize to get a fresh lighting preset. Changes can be undone with Ctrl/Cmd+Z. The current settings are kept in the URL, so you can share a link, or save and load them as a `.json` preset.
 
 Once you're happy with the result, click Export to download a square PNG at a chosen resolution (from 256 up to 4096px). 
 
 ## How it works
 We use Three.js to render a WebGL 3D sphere facing the camera. 
-The sphere is lit by ambient light, a key light, a fill light, and an HDR.
+The sphere is lit by ambient light, a key light, a fill light, a rim light, and an optional HDR environment map. The HDRIs come from [Poly Haven](https://polyhaven.com/hdris): they are fetched from its API only when you select one.
 
 The sphere is rendered from an orthographic camera into an off-screen render target, framed so the sphere touches every edge of the frame.  
 That render target's texture is the matcap.
 
-Every time you tweak a light or material setting, that render target is refreshed, and its texture is fed straight into a `MeshMatcapMaterial` on the rotating preview mesh. So you see the matcap applied to non-spherical geometry in real time.
+Every time you tweak a light or material setting, that render target is refreshed, and its texture is fed straight into a `MeshMatcapMaterial` on the rotating preview mesh (with a concrete normal map, so you can see how the matcap reacts to surface detail). So you see the matcap applied to non-spherical geometry in real time.
 The mesh needs nothing but its own vertex normals: no lights, no BRDF (no roughness/metalness parameters).
 
-Exporting reuses this exact approach: a dedicated renderer sets up the same orthographic camera at the resolution you chose (256 up to 4096px), renders the sphere once, and saves the result as a PNG. Because it's the same projection used for the live preview, the exported image matches exactly what you saw on screen.
+Exporting reuses this exact approach: the renderer is temporarily resized to the resolution you chose (256 up to 4096px), renders the sphere once through the same orthographic framing, and saves the result as a PNG. Because it's the same projection used for the live preview, the exported image matches exactly what you saw on screen.
 
 ## Project structure
 
 - **`index.html`** — Contains the 3 main elements of the DOM: the main viewport, the preview, and the right-side editor
 - **`src/app.ts`** — This is the entry point. It defines the initial state of the scene (i.e. the default settings), instantiates the GUI, and triggers a re-render of the scene after any change of the state.
-- **`src/scene.ts`** — That's where most of the heavy lifting is happening: rendering of the 3d scene (sphere and lights), creating a matcap texture from an off-screen render, and applying it as a texture to the preview torus.
-- **`src/style.css`** — Not much happening here, just the basic layout of the DOM elements
+- **`src/scene.ts`** — That's where most of the heavy lifting is happening: rendering of the 3d scene (sphere and lights), loading the environment maps and preview models, creating a matcap texture from an off-screen render, applying it as a texture to the preview model, and exporting the PNG.
+- **`src/state.ts`** — Serializes the state to the URL hash and to preset files, and validates a state read back from them.
+- **`src/history.ts`** — The undo/redo stack.
+- **`src/status.ts`** — The loading and error messages shown while assets are fetched.
+- **`src/types.ts`** — The shape of the state.
+- **`src/helpers.ts`** — Small random helpers used by the Randomize button.
+- **`src/styles/`** — SCSS partials for the layout of the DOM elements, imported by `styles.scss`.
+- **`public/`** — Static assets: the preview models (`models/`, Draco-compressed glTF binaries), the normal map of the preview (`textures/`) and the favicon.
 
 ## Stack choices
 I have 15 years of experience writing vanilla JS/TS, so using TypeScript was a no-brainer.
