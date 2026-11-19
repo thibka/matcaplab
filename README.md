@@ -2,7 +2,7 @@
 
 #### Video Demo: https://www.youtube.com/watch?v=ezj7XrKp8Dg
 
-#### Description: A WebGL-based matcap generator with live lighting controls and PNG export. 
+#### Description: A WebGL-based matcap generator with live lighting controls and PNG export.
 
 https://thibka.github.io/matcaplab/
 
@@ -21,10 +21,11 @@ When opening the app, you'll see a live-rendered sphere in the viewport with a r
 
 You can tweak the key, fill, rim and ambient lights, the material (standard, physical, phong, toon or lambert) and the environment map through the GUI panel on the right, or hit Randomize to get a fresh lighting preset. Changes can be undone with Ctrl/Cmd+Z. The current settings are kept in the URL, so you can share a link, or save and load them as a `.json` preset.
 
-Once you're happy with the result, click Export to download a square PNG at a chosen resolution (from 256 up to 4096px). 
+Once you're happy with the result, click Export to download a square PNG at a chosen resolution (from 256 up to 4096px).
 
 ## How it works
-We use Three.js to render a WebGL 3D sphere facing the camera. 
+
+We use Three.js to render a WebGL 3D sphere facing the camera.
 The sphere is lit by ambient light, a key light, a fill light, a rim light, and an optional HDR environment map. The HDRIs come from [Poly Haven](https://polyhaven.com/hdris): they are fetched from its API only when you select one.
 
 The sphere is rendered from an orthographic camera into an off-screen render target, framed so the sphere touches every edge of the frame.  
@@ -50,11 +51,12 @@ Exporting reuses this exact pipeline at the resolution you chose (256 up to 4096
 - **`public/`** — Static assets: the preview models (`models/`, Draco-compressed glTF binaries), the normal map of the preview (`textures/`) and the favicon.
 
 ## Stack choices
+
 I have 15 years of experience writing vanilla JS/TS, so using TypeScript was a no-brainer.
 
 I also have more than 10 years of experience with Three.js so that was the obvious choice for the 3d part.
 
-To render the editor on the right side, I used [perfect-gui](https://thibka.github.io/perfect-gui/dist/), a JavaScript GUI library I wrote and have been maintaining for a few years now. Perfect-gui makes it possible to create image-buttons, which is why it's so useful for this kind of project. 
+To render the editor on the right side, I used [perfect-gui](https://thibka.github.io/perfect-gui/dist/), a JavaScript GUI library I wrote and have been maintaining for a few years now. Perfect-gui makes it possible to create image-buttons, which is why it's so useful for this kind of project.
 
 ## Running it locally
 
@@ -65,32 +67,25 @@ npm run dev
 
 Requires Node 22.12+ or 24+ (see `.nvmrc`).
 
-| Script | What it does |
-| --- | --- |
-| `npm run dev` | Vite dev server |
-| `npm run build` | Typecheck + production build in `dist/` |
-| `npm run typecheck` | `tsc` only |
-| `npm run lint` | ESLint (`eslint.config.js`: JS + typescript-eslint recommended rules) |
-| `npm run format` / `format:check` | Prettier (`.prettierrc.json`: 4 spaces, single quotes, 140 columns) |
-| `npm test` / `test:watch` | Vitest unit tests (`src/*.test.ts`) |
+| Script                            | What it does                                                          |
+| --------------------------------- | --------------------------------------------------------------------- |
+| `npm run dev`                     | Vite dev server                                                       |
+| `npm run build`                   | Typecheck + production build in `dist/`                               |
+| `npm run typecheck`               | `tsc` only                                                            |
+| `npm run lint`                    | ESLint (`eslint.config.js`: JS + typescript-eslint recommended rules) |
+| `npm run format` / `format:check` | Prettier (`.prettierrc.json`: 4 spaces, single quotes, 140 columns)   |
+| `npm test` / `test:watch`         | Vitest unit tests (`src/*.test.ts`)                                   |
 
 ## CI and deployment
 
-`.github/workflows/ci.yml` runs lint, typecheck, tests and build on every pull request and every push to `main`.
-On `main`, it then publishes `dist/` to GitHub Pages at https://thibka.github.io/matcaplab/.
-
-To enable it (one-time setup):
-
-1. In the repository settings, go to **Pages → Build and deployment → Source** and choose **GitHub Actions**
-   (or run `gh api -X POST repos/thibka/matcaplab/pages -f build_type=workflow`).
-2. Push to `main`, or run the **CI** workflow manually from the Actions tab.
-3. Check that the deploy job succeeded and that https://thibka.github.io/matcaplab/ still loads.
-4. Delete the old, manually copied `matcaplab/` folder from the `thibka/thibka.github.io` repository.
+`.github/workflows/ci.yml` runs lint, format check, typecheck, tests and build on every pull request and every push to `main`.
+On `main`, it then publishes `dist/` to GitHub Pages at https://thibka.github.io/matcaplab/ (repository settings: **Pages → Source: GitHub Actions**).
 
 ## AI usage
 
-I used Claude Code to help me set up this project. 
+I used Claude Code to help me set up this project.
 I like to use it to:
+
 - get rid of the grunt work (ex: "move these functions into a separate helper file")
 - challenge my ideas (ex: "would it make sense to do this or that")
 - fix my English when I need to write README documentation for CS50 :)

@@ -50,7 +50,7 @@ body {
     pointer-events: none;
 }
 
-#viewport[data-layout="split"] #preview {
+#viewport[data-layout='split'] #preview {
     top: 0;
     right: 0;
     width: 50%;
@@ -59,7 +59,7 @@ body {
 }
 
 @container viewport (orientation: portrait) {
-    #viewport[data-layout="split"] #preview {
+    #viewport[data-layout='split'] #preview {
         top: auto;
         right: 0;
         bottom: 0;
@@ -71,7 +71,7 @@ body {
     }
 }
 
-#viewport[data-layout="overlay"] #preview {
+#viewport[data-layout='overlay'] #preview {
     width: 220px;
     height: 220px;
     right: 20px;

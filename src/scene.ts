@@ -2,9 +2,18 @@ import * as THREE from 'three';
 // Loaders are only imported as types here: their code is fetched with import() on first use, keeping it out of the main bundle.
 import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
-import type { AssetLoadEvent, EnvMapOption, MaterialType, PolyHavenFilesResponse, SceneState, ToneMappingOption, ViewportLayout } from './types';
+import type {
+    AssetLoadEvent,
+    EnvMapOption,
+    MaterialType,
+    PolyHavenFilesResponse,
+    SceneState,
+    ToneMappingOption,
+    ViewportLayout,
+} from './types';
 
-const NONE_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkBAMAAACCzIhnAAAALVBMVEUAAABQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFD0f7CQAAAADnRSTlMAEM/vcN8gkIA8n69gv9AeqN0AAAGeSURBVFjD7ZW7SgNBFIbPelmDiCxJL6ayEIIBCxuDYmUTrERUZBt78QFCQCxsrCysxMbSIIKt2Nja2IvmQkxivmcwE8Lu6c4+wHzVDuw/35kLZ8Tj8Xg8HsfNS6W1eiXZCS4YcxiPvh/jLIkaE/qx5HkSmx0SjoMS93ZiDsU5zcgu6wvY3I2Cm1ccRVsyBWyMZw4vwUlMatCd/BY2oGsnFoAtmVAYDyxO4S9ZVgkom5GGmjdPB7uyEPpKUqyBtf552E8lzagAdSMyC3UlkRysGZE7iJVEggo9I3LNQEtEvmgbkVfaWiJSZWBESvS0xFXaMSIVfpRkxBItIwLfqcSxCHYklaQRo7BUkq2wE3pa4pbftDdZSTJtcpWhlrg5fs0L04q0JMS8MNNQ15Ic7BmRHJSVRE4x+1gAXSWRBsR2g+EklcxAXywKoCQfsG9GZoCyHrxlan39OHkCjAaT9q6DOHlmlu1IHsfAtfFPYBhlkaygOMsiaUbvJKyLTZWia/gTupHYfLgzCR+A5JmxWNgWx+1zpXW0Kx6Px+PxjPgHBlQp+dv2kycAAAAASUVORK5CYII=";
+const NONE_THUMBNAIL =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkBAMAAACCzIhnAAAALVBMVEUAAABQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFD0f7CQAAAADnRSTlMAEM/vcN8gkIA8n69gv9AeqN0AAAGeSURBVFjD7ZW7SgNBFIbPelmDiCxJL6ayEIIBCxuDYmUTrERUZBt78QFCQCxsrCysxMbSIIKt2Nja2IvmQkxivmcwE8Lu6c4+wHzVDuw/35kLZ8Tj8Xg8HsfNS6W1eiXZCS4YcxiPvh/jLIkaE/qx5HkSmx0SjoMS93ZiDsU5zcgu6wvY3I2Cm1ccRVsyBWyMZw4vwUlMatCd/BY2oGsnFoAtmVAYDyxO4S9ZVgkom5GGmjdPB7uyEPpKUqyBtf552E8lzagAdSMyC3UlkRysGZE7iJVEggo9I3LNQEtEvmgbkVfaWiJSZWBESvS0xFXaMSIVfpRkxBItIwLfqcSxCHYklaQRo7BUkq2wE3pa4pbftDdZSTJtcpWhlrg5fs0L04q0JMS8MNNQ15Ic7BmRHJSVRE4x+1gAXSWRBsR2g+EklcxAXywKoCQfsG9GZoCyHrxlan39OHkCjAaT9q6DOHlmlu1IHsfAtfFPYBhlkaygOMsiaUbvJKyLTZWia/gTupHYfLgzCR+A5JmxWNgWx+1zpXW0Kx6Px+PxjPgHBlQp+dv2kycAAAAASUVORK5CYII=';
 
 // Available environment maps, sourced live from the Poly Haven API. 'none' disables the effect.
 export const ENV_MAPS: EnvMapOption[] = [
@@ -138,11 +147,7 @@ function createResolveMaterial(): THREE.ShaderMaterial {
 }
 
 type SphereMaterial =
-    | THREE.MeshStandardMaterial
-    | THREE.MeshPhysicalMaterial
-    | THREE.MeshPhongMaterial
-    | THREE.MeshToonMaterial
-    | THREE.MeshLambertMaterial;
+    THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial | THREE.MeshPhongMaterial | THREE.MeshToonMaterial | THREE.MeshLambertMaterial;
 
 // No dithering: in the linear matcap render target it would add visible noise to dark areas,
 // and the on-screen sphere must match the exported pixels.
@@ -265,7 +270,14 @@ export class MatcapScene {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x000000);
         this.cameraViewSize = 1.6;
-        this.camera = new THREE.OrthographicCamera(-this.cameraViewSize, this.cameraViewSize, this.cameraViewSize, -this.cameraViewSize, 0.1, 100);
+        this.camera = new THREE.OrthographicCamera(
+            -this.cameraViewSize,
+            this.cameraViewSize,
+            this.cameraViewSize,
+            -this.cameraViewSize,
+            0.1,
+            100,
+        );
         this.camera.position.set(0, 0, 5);
 
         const sphereGeometry = new THREE.SphereGeometry(this.modelRadius, 128, 128);
@@ -304,9 +316,12 @@ export class MatcapScene {
         this.previewCamera.position.set(0, 0, 5);
 
         this.torusGeometry = new THREE.TorusGeometry(this.previewRadius, this.previewRadius * 0.4, 64, 128);
-        const previewNormalMap = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}textures/Concrete047A_1K-JPG_NormalGL.jpg`, () => {
-            this.previewDirty = true;
-        });
+        const previewNormalMap = new THREE.TextureLoader().load(
+            `${import.meta.env.BASE_URL}textures/Concrete047A_1K-JPG_NormalGL.jpg`,
+            () => {
+                this.previewDirty = true;
+            },
+        );
         previewNormalMap.wrapS = THREE.RepeatWrapping;
         previewNormalMap.wrapT = THREE.RepeatWrapping;
         const previewMaterial = new THREE.MeshMatcapMaterial({
@@ -421,8 +436,18 @@ export class MatcapScene {
 
         if (this.previewDirty) {
             // Scissored model preview pass
-            this.renderer.setScissor(this.previewViewport.x, this.previewViewport.y, this.previewViewport.width, this.previewViewport.height);
-            this.renderer.setViewport(this.previewViewport.x, this.previewViewport.y, this.previewViewport.width, this.previewViewport.height);
+            this.renderer.setScissor(
+                this.previewViewport.x,
+                this.previewViewport.y,
+                this.previewViewport.width,
+                this.previewViewport.height,
+            );
+            this.renderer.setViewport(
+                this.previewViewport.x,
+                this.previewViewport.y,
+                this.previewViewport.width,
+                this.previewViewport.height,
+            );
             this.previewCamera.aspect = this.previewViewport.width / this.previewViewport.height;
             this.previewCamera.updateProjectionMatrix();
             this.renderer.render(this.previewScene, this.previewCamera);
@@ -463,26 +488,30 @@ export class MatcapScene {
         if (!loading) {
             const file = `${name}.glb`;
             loading = new Promise<THREE.BufferGeometry>((resolve, reject) => {
-                this.getGLTFLoader().then((loader) => loader.load(
-                    `${import.meta.env.BASE_URL}models/${file}`,
-                    (gltf) => {
-                        let geometry: THREE.BufferGeometry | null = null;
-                        gltf.scene.traverse((child) => {
-                            if (!geometry && (child as THREE.Mesh).isMesh) {
-                                geometry = (child as THREE.Mesh).geometry;
-                            }
-                        });
-                        if (!geometry) {
-                            reject(new Error(`No mesh found in ${file}`));
-                            return;
-                        }
-                        const finalGeometry: THREE.BufferGeometry = geometry;
-                        finalGeometry.center();
-                        resolve(finalGeometry);
-                    },
-                    undefined,
+                this.getGLTFLoader().then(
+                    (loader) =>
+                        loader.load(
+                            `${import.meta.env.BASE_URL}models/${file}`,
+                            (gltf) => {
+                                let geometry: THREE.BufferGeometry | null = null;
+                                gltf.scene.traverse((child) => {
+                                    if (!geometry && (child as THREE.Mesh).isMesh) {
+                                        geometry = (child as THREE.Mesh).geometry;
+                                    }
+                                });
+                                if (!geometry) {
+                                    reject(new Error(`No mesh found in ${file}`));
+                                    return;
+                                }
+                                const finalGeometry: THREE.BufferGeometry = geometry;
+                                finalGeometry.center();
+                                resolve(finalGeometry);
+                            },
+                            undefined,
+                            reject,
+                        ),
                     reject,
-                ), reject);
+                );
             });
             // Evict the failed entry so a future call retries instead of reusing the rejected promise.
             loading.catch(() => this.modelGeometries.delete(name));
@@ -779,7 +808,12 @@ export class MatcapScene {
     }
 
     // Renders the sphere seen by `camera` into `hdrTarget`, then resolves it into `target`.
-    private renderMatcapTo(target: THREE.WebGLRenderTarget, hdrTarget: THREE.WebGLRenderTarget, camera: THREE.Camera, transparent: boolean) {
+    private renderMatcapTo(
+        target: THREE.WebGLRenderTarget,
+        hdrTarget: THREE.WebGLRenderTarget,
+        camera: THREE.Camera,
+        transparent: boolean,
+    ) {
         const prevTarget = this.renderer.getRenderTarget();
         const prevClearAlpha = this.renderer.getClearAlpha();
 

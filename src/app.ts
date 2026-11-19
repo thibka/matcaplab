@@ -149,7 +149,9 @@ window.addEventListener('keydown', (event) => {
         return;
     }
     const target = event.target as HTMLElement;
-    const isTextField = target instanceof HTMLTextAreaElement || (target instanceof HTMLInputElement && !['color', 'checkbox', 'range', 'button'].includes(target.type));
+    const isTextField =
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLInputElement && !['color', 'checkbox', 'range', 'button'].includes(target.type));
     if (isTextField || target.isContentEditable) {
         return;
     }
@@ -349,7 +351,7 @@ function randomizePreset() {
     state.rim.color = randomColor([0, 0.6], [0.6, 0.9]);
     state.rim.intensity = randomInRange(0.5, 3, 2);
     // Behind the sphere: azimuth within 60° of 180.
-    state.rim.azimuth = (randomInRange(120, 240, 0) + 180) % 360 - 180;
+    state.rim.azimuth = ((randomInRange(120, 240, 0) + 180) % 360) - 180;
     state.rim.elevation = randomInRange(-30, 60, 0);
 
     state.ambient.color = randomColor([0, 0.6], [0.3, 0.8]);
@@ -389,7 +391,7 @@ const gui = new GUI({
     width: 280,
     collapsible: false,
     onUpdate: refresh,
-    label: 'Settings'
+    label: 'Settings',
 });
 
 gui.button({ label: 'Randomize', tooltip: 'Undo with Ctrl/Cmd+Z' }).onClick(randomizePreset);
@@ -485,7 +487,12 @@ syncList(materialTypeList, () => state.material.type);
 materialFolder.color(state.material, 'color', { label: 'Color' });
 const roughnessSlider = materialFolder.slider(state.material, 'roughness', { label: 'Roughness', min: 0, max: 1, step: 0.01 });
 const metalnessSlider = materialFolder.slider(state.material, 'metalness', { label: 'Metalness', min: 0, max: 1, step: 0.01 });
-const envIntensitySlider = materialFolder.slider(state.material, 'envMapIntensity', { label: 'Env Intensity', min: 0, max: 1.5, step: 0.01 });
+const envIntensitySlider = materialFolder.slider(state.material, 'envMapIntensity', {
+    label: 'Env Intensity',
+    min: 0,
+    max: 1.5,
+    step: 0.01,
+});
 
 const physical = state.material.physical;
 const physicalFolder = materialFolder.folder({ label: 'Physical' });
