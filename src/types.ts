@@ -1,3 +1,5 @@
+import type { ToneMapping } from 'three';
+
 export type LightState = {
     color: string;
     intensity: number;
@@ -34,6 +36,16 @@ export type MaterialState = {
     toon: { steps: number };
 };
 
+export type ToneMappingState = {
+    mode: ToneMapping;
+    exposure: number;
+};
+
+export type ToneMappingOption = {
+    label: string;
+    value: ToneMapping;
+};
+
 export type EnvMapOption = {
     label: string;
     slug: string;
@@ -57,7 +69,9 @@ export type SceneState = {
     rim: LightState;
     ambient: AmbientState;
     material: MaterialState;
+    toneMapping: ToneMappingState;
     exportSize: number;
+    exportTransparent: boolean;
 };
 
 export type ViewportLayout = 'split' | 'overlay';

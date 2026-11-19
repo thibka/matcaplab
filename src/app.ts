@@ -1,6 +1,7 @@
 import './styles/styles.scss';
 import GUI from 'perfect-gui';
-import { MatcapScene, ENV_MAPS, CUSTOM_MODEL } from './scene';
+import { NeutralToneMapping } from 'three';
+import { MatcapScene, ENV_MAPS, CUSTOM_MODEL, TONE_MAPPINGS } from './scene';
 import { AssetStatus, describeLoadError } from './status';
 import type { AssetKind, LightState, MaterialType, SceneState, ViewportLayout } from './types';
 import { randomInRange, randomColor } from './helpers';
@@ -42,7 +43,9 @@ const state: SceneState = {
         phong: { shininess: 30, specular: '#111111' },
         toon: { steps: 3 },
     },
+    toneMapping: { mode: NeutralToneMapping, exposure: 1 },
     exportSize: 512,
+    exportTransparent: false,
 };
 
 const EXPORT_SIZES = [256, 512, 1024, 2048, 4096];
@@ -60,6 +63,7 @@ const STATE_ENUMS: StateEnums = {
     'model.geometry': MODEL_GEOMETRIES,
     'material.type': MATERIAL_TYPES.map((option) => option.value),
     'material.envMap': ENV_MAPS.map((option) => option.slug),
+    'toneMapping.mode': TONE_MAPPINGS.map((option) => option.value),
     exportSize: EXPORT_SIZES,
 };
 
@@ -403,9 +407,10 @@ presetFolder.button({ label: 'Load preset (.json)' }).onClick(async () => {
 
 const exportFolder = gui.folder({ label: 'Export' });
 syncList(exportFolder.list(state, 'exportSize', EXPORT_SIZES, { label: 'Size' }), () => state.exportSize);
+exportFolder.toggle(state, 'exportTransparent', { label: 'Transparent background' });
 exportFolder.button({ label: 'Export PNG' }).onClick(() => {
     const size = state.exportSize;
-    scene.exportPNG(size, `matcap-${size}.png`);
+    scene.exportPNG(size, `matcap-${size}.png`, state.exportTransparent).catch((error) => console.error('Export failed:', error));
 });
 
 const modelFolder = gui.folder({ label: 'Model' });
@@ -521,6 +526,9 @@ function updateMaterialControls() {
 materialTypeList.onChange(updateMaterialControls);
 updateMaterialControls();
 
+const toneMappingFolder = gui.folder({ label: 'Tone Mapping' });
+syncList(toneMappingFolder.list(state.toneMapping, 'mode', TONE_MAPPINGS, { label: 'Mode' }), () => state.toneMapping.mode);
+toneMappingFolder.slider(state.toneMapping, 'exposure', { label: 'Exposure', min: 0.1, max: 4, step: 0.01 });
 
 const assetStatus = new AssetStatus(document.querySelector<HTMLDivElement>('#asset-status')!);
 

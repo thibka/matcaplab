@@ -28,12 +28,13 @@ We use Three.js to render a WebGL 3D sphere facing the camera.
 The sphere is lit by ambient light, a key light, a fill light, a rim light, and an optional HDR environment map. The HDRIs come from [Poly Haven](https://polyhaven.com/hdris): they are fetched from its API only when you select one.
 
 The sphere is rendered from an orthographic camera into an off-screen render target, framed so the sphere touches every edge of the frame.  
-That render target's texture is the matcap.
+It is rendered at twice the matcap resolution into a linear HDR (half-float) target, then a resolve pass tone maps each sample, averages them down (2×2 supersampling) and writes the result into an 8-bit sRGB texture.  
+That texture is the matcap: its bytes are exactly the ones a PNG export would contain.
 
 Every time you tweak a light or material setting, that render target is refreshed, and its texture is fed straight into a `MeshMatcapMaterial` on the rotating preview mesh (with a concrete normal map, so you can see how the matcap reacts to surface detail). So you see the matcap applied to non-spherical geometry in real time.
 The mesh needs nothing but its own vertex normals: no lights, no BRDF (no roughness/metalness parameters).
 
-Exporting reuses this exact approach: the renderer is temporarily resized to the resolution you chose (256 up to 4096px), renders the sphere once through the same orthographic framing, and saves the result as a PNG. Because it's the same projection used for the live preview, the exported image matches exactly what you saw on screen.
+Exporting reuses this exact pipeline at the resolution you chose (256 up to 4096px), rendered in 1024px tiles so large sizes stay within GPU limits, and saves the result as a PNG (optionally with a transparent background). The on-screen sphere uses the same tone mapping operator, so the exported image matches what you saw on screen.
 
 ## Project structure
 

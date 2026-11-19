@@ -2,7 +2,7 @@ import * as THREE from 'three';
 // Loaders are only imported as types here: their code is fetched with import() on first use, keeping it out of the main bundle.
 import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
-import type { AssetLoadEvent, EnvMapOption, MaterialType, PolyHavenFilesResponse, SceneState, ViewportLayout } from './types';
+import type { AssetLoadEvent, EnvMapOption, MaterialType, PolyHavenFilesResponse, SceneState, ToneMappingOption, ViewportLayout } from './types';
 
 const NONE_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkBAMAAACCzIhnAAAALVBMVEUAAABQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFD0f7CQAAAADnRSTlMAEM/vcN8gkIA8n69gv9AeqN0AAAGeSURBVFjD7ZW7SgNBFIbPelmDiCxJL6ayEIIBCxuDYmUTrERUZBt78QFCQCxsrCysxMbSIIKt2Nja2IvmQkxivmcwE8Lu6c4+wHzVDuw/35kLZ8Tj8Xg8HsfNS6W1eiXZCS4YcxiPvh/jLIkaE/qx5HkSmx0SjoMS93ZiDsU5zcgu6wvY3I2Cm1ccRVsyBWyMZw4vwUlMatCd/BY2oGsnFoAtmVAYDyxO4S9ZVgkom5GGmjdPB7uyEPpKUqyBtf552E8lzagAdSMyC3UlkRysGZE7iJVEggo9I3LNQEtEvmgbkVfaWiJSZWBESvS0xFXaMSIVfpRkxBItIwLfqcSxCHYklaQRo7BUkq2wE3pa4pbftDdZSTJtcpWhlrg5fs0L04q0JMS8MNNQ15Ic7BmRHJSVRE4x+1gAXSWRBsR2g+EklcxAXywKoCQfsG9GZoCyHrxlan39OHkCjAaT9q6DOHlmlu1IHsfAtfFPYBhlkaygOMsiaUbvJKyLTZWia/gTupHYfLgzCR+A5JmxWNgWx+1zpXW0Kx6Px+PxjPgHBlQp+dv2kycAAAAASUVORK5CYII=";
 
@@ -51,6 +51,92 @@ export const ENV_MAPS: EnvMapOption[] = [
     },
 ];
 
+// Tone mapping operators offered in the GUI. 'None' must stay first (perfect-gui falls back to the first value).
+export const TONE_MAPPINGS: ToneMappingOption[] = [
+    { label: 'None', value: THREE.NoToneMapping },
+    { label: 'Linear', value: THREE.LinearToneMapping },
+    { label: 'Reinhard', value: THREE.ReinhardToneMapping },
+    { label: 'Cineon', value: THREE.CineonToneMapping },
+    { label: 'ACES Filmic', value: THREE.ACESFilmicToneMapping },
+    { label: 'AgX', value: THREE.AgXToneMapping },
+    { label: 'Neutral', value: THREE.NeutralToneMapping },
+];
+
+// GLSL functions from three's tonemapping_pars_fragment chunk, keyed by operator.
+const TONE_MAPPING_FUNCTIONS: Record<THREE.ToneMapping, string> = {
+    [THREE.NoToneMapping]: '',
+    [THREE.LinearToneMapping]: 'LinearToneMapping',
+    [THREE.ReinhardToneMapping]: 'ReinhardToneMapping',
+    [THREE.CineonToneMapping]: 'CineonToneMapping',
+    [THREE.ACESFilmicToneMapping]: 'ACESFilmicToneMapping',
+    [THREE.AgXToneMapping]: 'AgXToneMapping',
+    [THREE.NeutralToneMapping]: 'NeutralToneMapping',
+    [THREE.CustomToneMapping]: 'CustomToneMapping',
+};
+
+// The matcap is rendered at SUPERSAMPLING times its size per axis, then averaged down.
+const SUPERSAMPLING = 2;
+const MATCAP_PREVIEW_SIZE = 512;
+// Exports are rendered in square tiles so large sizes never exceed the GPU's render target limits.
+const EXPORT_TILE_SIZE = 1024;
+
+// Linear HDR target that receives the supersampled sphere render (three outputs linear values into render targets).
+function createHdrTarget(size: number): THREE.WebGLRenderTarget {
+    return new THREE.WebGLRenderTarget(size, size, {
+        type: THREE.HalfFloatType,
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
+    });
+}
+
+// Display-referred 8-bit target: being sRGB, the GPU applies the sRGB transfer on write and decodes on sampling,
+// so its bytes are exactly what ends up in the exported PNG.
+function createMatcapTarget(size: number): THREE.WebGLRenderTarget {
+    return new THREE.WebGLRenderTarget(size, size, { colorSpace: THREE.SRGBColorSpace, depthBuffer: false });
+}
+
+// Downsamples the HDR render: each sample is tone mapped and clamped before averaging, like the on-screen
+// render (tone mapping in the material shader, then MSAA resolve), so bright silhouettes stay anti-aliased.
+// Background samples have alpha 0: they composite as black, or as transparency when `transparent` is set.
+function createResolveMaterial(): THREE.ShaderMaterial {
+    return new THREE.ShaderMaterial({
+        defines: { SUPERSAMPLING, TONE_MAP: '' },
+        uniforms: {
+            tDiffuse: { value: null },
+            transparent: { value: false },
+        },
+        vertexShader: /* glsl */ `
+            void main() {
+                gl_Position = vec4(position.xy, 0.0, 1.0);
+            }`,
+        fragmentShader: /* glsl */ `
+            #include <tonemapping_pars_fragment>
+
+            uniform sampler2D tDiffuse;
+            uniform bool transparent;
+
+            void main() {
+                ivec2 origin = ivec2(gl_FragCoord.xy) * SUPERSAMPLING;
+                vec3 color = vec3(0.0);
+                float coverage = 0.0;
+                for (int y = 0; y < SUPERSAMPLING; y++) {
+                    for (int x = 0; x < SUPERSAMPLING; x++) {
+                        vec4 texel = texelFetch(tDiffuse, origin + ivec2(x, y), 0);
+                        color += saturate(TONE_MAP(texel.rgb)) * texel.a;
+                        coverage += texel.a;
+                    }
+                }
+                float sampleCount = float(SUPERSAMPLING * SUPERSAMPLING);
+                // Straight (non-premultiplied) alpha when transparent, as PNG expects
+                gl_FragColor = transparent
+                    ? vec4(coverage > 0.0 ? color / coverage : vec3(0.0), coverage / sampleCount)
+                    : vec4(color / sampleCount, 1.0);
+            }`,
+        depthTest: false,
+        depthWrite: false,
+    });
+}
+
 type SphereMaterial =
     | THREE.MeshStandardMaterial
     | THREE.MeshPhysicalMaterial
@@ -58,18 +144,20 @@ type SphereMaterial =
     | THREE.MeshToonMaterial
     | THREE.MeshLambertMaterial;
 
+// No dithering: in the linear matcap render target it would add visible noise to dark areas,
+// and the on-screen sphere must match the exported pixels.
 function createSphereMaterial(type: MaterialType): SphereMaterial {
     switch (type) {
         case 'physical':
-            return new THREE.MeshPhysicalMaterial({ dithering: true });
+            return new THREE.MeshPhysicalMaterial();
         case 'phong':
-            return new THREE.MeshPhongMaterial({ dithering: true });
+            return new THREE.MeshPhongMaterial();
         case 'toon':
-            return new THREE.MeshToonMaterial({ dithering: true });
+            return new THREE.MeshToonMaterial();
         case 'lambert':
-            return new THREE.MeshLambertMaterial({ dithering: true });
+            return new THREE.MeshLambertMaterial();
         default:
-            return new THREE.MeshStandardMaterial({ dithering: true });
+            return new THREE.MeshStandardMaterial();
     }
 }
 
@@ -146,7 +234,11 @@ export class MatcapScene {
     private ambient: THREE.AmbientLight;
     private container: HTMLElement;
     private matcapTarget: THREE.WebGLRenderTarget;
+    private matcapHdrTarget: THREE.WebGLRenderTarget;
     private matcapCamera: THREE.OrthographicCamera;
+    private resolveMaterial: THREE.ShaderMaterial;
+    private resolveQuad: THREE.Mesh;
+    private toneMapping: THREE.ToneMapping = THREE.NoToneMapping;
     private previewElement: HTMLElement;
     private previewScene: THREE.Scene;
     private previewCamera: THREE.PerspectiveCamera;
@@ -193,10 +285,18 @@ export class MatcapScene {
         this.scene.add(this.rimLight);
 
         const radius = this.modelRadius;
-        this.matcapTarget = new THREE.WebGLRenderTarget(512, 512);
+        this.matcapTarget = createMatcapTarget(MATCAP_PREVIEW_SIZE);
+        this.matcapHdrTarget = createHdrTarget(MATCAP_PREVIEW_SIZE * SUPERSAMPLING);
         this.matcapCamera = new THREE.OrthographicCamera(-radius, radius, radius, -radius, 0.1, 100);
         this.matcapCamera.position.set(0, 0, 5);
         this.matcapCamera.lookAt(0, 0, 0);
+
+        // Full-screen triangle running the resolve pass
+        const resolveGeometry = new THREE.BufferGeometry();
+        resolveGeometry.setAttribute('position', new THREE.Float32BufferAttribute([-1, 3, 0, -1, -1, 0, 3, -1, 0], 3));
+        this.resolveMaterial = createResolveMaterial();
+        this.resolveQuad = new THREE.Mesh(resolveGeometry, this.resolveMaterial);
+        this.resolveQuad.frustumCulled = false;
 
         this.previewScene = new THREE.Scene();
         this.previewScene.background = new THREE.Color(0x161616);
@@ -213,6 +313,8 @@ export class MatcapScene {
             matcap: this.matcapTarget.texture,
             normalMap: previewNormalMap,
             dithering: true,
+            // The matcap already holds tone-mapped colors
+            toneMapped: false,
         });
         this.previewMesh = new THREE.Mesh(this.torusGeometry, previewMaterial);
         this.previewScene.add(this.previewMesh);
@@ -660,24 +762,54 @@ export class MatcapScene {
         this.setEnvMap(state.material.envMap);
         this.scene.environmentIntensity = state.material.envMapIntensity;
 
+        this.setToneMapping(state.toneMapping.mode, state.toneMapping.exposure);
+
         this.renderMatcap();
     }
 
-    // Renders the sphere into the live matcap render target, sampled by the preview torus.
-    private renderMatcap() {
+    // The on-screen sphere gets tone mapping from the renderer; the matcap gets the same operator in its resolve pass.
+    private setToneMapping(mode: THREE.ToneMapping, exposure: number) {
+        this.renderer.toneMapping = mode;
+        this.renderer.toneMappingExposure = exposure;
+        if (mode !== this.toneMapping) {
+            this.toneMapping = mode;
+            this.resolveMaterial.defines.TONE_MAP = TONE_MAPPING_FUNCTIONS[mode];
+            this.resolveMaterial.needsUpdate = true;
+        }
+    }
+
+    // Renders the sphere seen by `camera` into `hdrTarget`, then resolves it into `target`.
+    private renderMatcapTo(target: THREE.WebGLRenderTarget, hdrTarget: THREE.WebGLRenderTarget, camera: THREE.Camera, transparent: boolean) {
         const prevTarget = this.renderer.getRenderTarget();
-        this.renderer.setRenderTarget(this.matcapTarget);
-        this.renderer.render(this.scene, this.matcapCamera);
+        const prevClearAlpha = this.renderer.getClearAlpha();
+
+        // Clear with alpha 0 so the resolve pass can tell the background from the sphere
+        this.renderer.setClearAlpha(0);
+        this.renderer.setRenderTarget(hdrTarget);
+        this.renderer.render(this.scene, camera);
+        this.renderer.setClearAlpha(prevClearAlpha);
+
+        this.resolveMaterial.uniforms.tDiffuse.value = hdrTarget.texture;
+        this.resolveMaterial.uniforms.transparent.value = transparent;
+        this.renderer.setRenderTarget(target);
+        this.renderer.render(this.resolveQuad, camera);
+
         this.renderer.setRenderTarget(prevTarget);
         // The on-screen sphere shows the same scene, so it is now stale too.
         this.sphereDirty = true;
     }
 
-    // Renders the current sphere setup to a square PNG and triggers a download.
-    exportPNG(size: number, filename: string) {
-        const prevPixelRatio = this.renderer.getPixelRatio();
-        const prevSize = new THREE.Vector2();
-        this.renderer.getSize(prevSize);
+    // Renders the sphere into the live matcap render target, sampled by the preview torus.
+    private renderMatcap() {
+        this.renderMatcapTo(this.matcapTarget, this.matcapHdrTarget, this.matcapCamera, false);
+    }
+
+    // Renders the current sphere setup to a square PNG through the same pipeline as the preview matcap, tile by tile,
+    // and triggers a download.
+    async exportPNG(size: number, filename: string, transparent: boolean) {
+        const tileSize = Math.min(size, EXPORT_TILE_SIZE);
+        const target = createMatcapTarget(tileSize);
+        const hdrTarget = createHdrTarget(tileSize * SUPERSAMPLING);
 
         // Orthographic, framed exactly to the sphere's radius
         const radius = this.modelRadius;
@@ -685,20 +817,40 @@ export class MatcapScene {
         exportCamera.position.set(0, 0, 5);
         exportCamera.lookAt(0, 0, 0);
 
-        this.renderer.setPixelRatio(1);
-        this.renderer.setSize(size, size, false);
-        this.renderer.setScissorTest(false);
-        this.renderer.setViewport(0, 0, size, size);
-        this.renderer.render(this.scene, exportCamera);
-        const dataUrl = this.renderer.domElement.toDataURL('image/png');
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const context = canvas.getContext('2d')!;
+        const pixels = new Uint8Array(tileSize * tileSize * 4);
+        const tile = new ImageData(tileSize, tileSize);
+        const rowLength = tileSize * 4;
 
-        this.renderer.setPixelRatio(prevPixelRatio);
-        this.renderer.setSize(prevSize.x, prevSize.y, false);
-        this.updateViewports();
+        for (let y = 0; y < size; y += tileSize) {
+            for (let x = 0; x < size; x += tileSize) {
+                exportCamera.setViewOffset(size, size, x, y, tileSize, tileSize);
+                this.renderMatcapTo(target, hdrTarget, exportCamera, transparent);
+                this.renderer.readRenderTargetPixels(target, 0, 0, tileSize, tileSize, pixels);
+                // WebGL rows go bottom-up, canvas rows top-down
+                for (let row = 0; row < tileSize; row++) {
+                    const sourceStart = (tileSize - 1 - row) * rowLength;
+                    tile.data.set(pixels.subarray(sourceStart, sourceStart + rowLength), row * rowLength);
+                }
+                context.putImageData(tile, x, y, 0, 0, Math.min(tileSize, size - x), Math.min(tileSize, size - y));
+            }
+        }
 
+        target.dispose();
+        hdrTarget.dispose();
+
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+        if (!blob) {
+            throw new Error('PNG encoding failed');
+        }
+        const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.href = dataUrl;
+        link.href = url;
         link.download = filename;
         link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 }
