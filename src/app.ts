@@ -1,7 +1,7 @@
 import './styles/styles.scss';
 import GUI from 'perfect-gui';
 import { MatcapScene, ENV_MAPS, CUSTOM_MODEL } from './scene';
-import type { SceneState, ViewportLayout } from './types';
+import type { MaterialType, SceneState, ViewportLayout } from './types';
 import { randomInRange, randomColor, hslToHex } from './helpers';
 import { applyState, readStateFromHash, snapshotState, stateToHash, type StateEnums } from './state';
 import { StateHistory } from './history';
@@ -16,16 +16,46 @@ const state: SceneState = {
     key: { color: '#ffffff', intensity: 2, azimuth: -40, elevation: 40 },
     fill: { color: '#88aaff', intensity: 0.6, azimuth: 130, elevation: -20 },
     ambient: { color: '#ffffff', intensity: 0.1 },
-    material: { color: '#ffffff', roughness: 0.5, metalness: 0.5, envMap: '', envMapIntensity: 1 },
+    material: {
+        type: 'standard',
+        color: '#ffffff',
+        roughness: 0.5,
+        metalness: 0.5,
+        envMap: '',
+        envMapIntensity: 1,
+        physical: {
+            clearcoat: 0,
+            clearcoatRoughness: 0.1,
+            sheen: 0,
+            sheenColor: '#ffffff',
+            sheenRoughness: 0.5,
+            iridescence: 0,
+            iridescenceIOR: 1.3,
+            iridescenceThickness: 400,
+            specularIntensity: 1,
+            specularColor: '#ffffff',
+            ior: 1.5,
+        },
+        phong: { shininess: 30, specular: '#111111' },
+        toon: { steps: 3 },
+    },
     exportSize: 512,
 };
 
 const EXPORT_SIZES = [256, 512, 1024, 2048, 4096];
 const MODEL_GEOMETRIES = ['torus', 'suzanne', 'dragon'];
+const MATERIAL_TYPES: { label: string; value: MaterialType }[] = [
+    { label: 'Standard', value: 'standard' },
+    { label: 'Physical', value: 'physical' },
+    { label: 'Phong', value: 'phong' },
+    { label: 'Toon', value: 'toon' },
+    { label: 'Lambert', value: 'lambert' },
+];
 
 // Allowed values when restoring a state from outside (URL hash, preset file).
 const STATE_ENUMS: StateEnums = {
     'model.geometry': MODEL_GEOMETRIES,
+    'material.type': MATERIAL_TYPES.map((option) => option.value),
     'material.envMap': ENV_MAPS.map((option) => option.slug),
     exportSize: EXPORT_SIZES,
 };
@@ -299,6 +329,22 @@ function randomizePreset() {
     state.material.roughness = randomInRange(0.1, 0.8, 2);
     state.material.metalness = randomInRange(0, 0.6, 2);
 
+    // Type-specific settings; layers that would be too much on every roll (sheen, iridescence) stay rare.
+    const physical = state.material.physical;
+    physical.clearcoat = Math.random() < 0.5 ? randomInRange(0.2, 1, 2) : 0;
+    physical.clearcoatRoughness = randomInRange(0, 0.5, 2);
+    physical.sheen = Math.random() < 0.3 ? randomInRange(0.2, 1, 2) : 0;
+    physical.sheenColor = hslToHex(randomColor());
+    physical.sheenRoughness = randomInRange(0.2, 1, 2);
+    physical.iridescence = Math.random() < 0.3 ? randomInRange(0.3, 1, 2) : 0;
+    physical.iridescenceIOR = randomInRange(1.1, 2, 2);
+    physical.iridescenceThickness = Math.round(randomInRange(200, 800, 0) / 10) * 10;
+    physical.specularIntensity = randomInRange(0.5, 1, 2);
+    physical.ior = randomInRange(1.2, 2, 2);
+    state.material.phong.shininess = randomInRange(5, 150, 0);
+    state.material.phong.specular = hslToHex(randomColor());
+    state.material.toon.steps = randomInRange(2, 5, 0);
+
     const randomEnvMap = ENV_MAPS[Math.floor(Math.random() * ENV_MAPS.length)];
     selectEnvMap(randomEnvMap.slug);
     state.material.envMapIntensity = randomInRange(0, 1.5, 1);
@@ -403,10 +449,51 @@ ambientFolder.color(state.ambient, 'color', { label: 'Color' });
 ambientFolder.slider(state.ambient, 'intensity', { label: 'Intensity', min: 0, max: 2, step: 0.01 });
 
 const materialFolder = gui.folder({ label: 'Material' });
+const materialTypeList = materialFolder.list(state.material, 'type', MATERIAL_TYPES, { label: 'Type' });
+syncList(materialTypeList, () => state.material.type);
 materialFolder.color(state.material, 'color', { label: 'Color' });
-materialFolder.slider(state.material, 'roughness', { label: 'Roughness', min: 0, max: 1, step: 0.01 });
-materialFolder.slider(state.material, 'metalness', { label: 'Metalness', min: 0, max: 1, step: 0.01 });
-materialFolder.slider(state.material, 'envMapIntensity', { label: 'Env Intensity', min: 0, max: 1.5, step: 0.01 });
+const roughnessSlider = materialFolder.slider(state.material, 'roughness', { label: 'Roughness', min: 0, max: 1, step: 0.01 });
+const metalnessSlider = materialFolder.slider(state.material, 'metalness', { label: 'Metalness', min: 0, max: 1, step: 0.01 });
+const envIntensitySlider = materialFolder.slider(state.material, 'envMapIntensity', { label: 'Env Intensity', min: 0, max: 1.5, step: 0.01 });
+
+const physical = state.material.physical;
+const physicalFolder = materialFolder.folder({ label: 'Physical' });
+physicalFolder.slider(physical, 'clearcoat', { label: 'Clearcoat', min: 0, max: 1, step: 0.01 });
+physicalFolder.slider(physical, 'clearcoatRoughness', { label: 'Clearcoat Roughness', min: 0, max: 1, step: 0.01 });
+physicalFolder.slider(physical, 'sheen', { label: 'Sheen', min: 0, max: 1, step: 0.01 });
+physicalFolder.color(physical, 'sheenColor', { label: 'Sheen Color' });
+physicalFolder.slider(physical, 'sheenRoughness', { label: 'Sheen Roughness', min: 0, max: 1, step: 0.01 });
+physicalFolder.slider(physical, 'iridescence', { label: 'Iridescence', min: 0, max: 1, step: 0.01 });
+physicalFolder.slider(physical, 'iridescenceIOR', { label: 'Iridescence IOR', min: 1, max: 2.333, step: 0.01 });
+physicalFolder.slider(physical, 'iridescenceThickness', { label: 'Iridescence Thickness (nm)', min: 100, max: 800, step: 10 });
+physicalFolder.slider(physical, 'specularIntensity', { label: 'Specular Intensity', min: 0, max: 1, step: 0.01 });
+physicalFolder.color(physical, 'specularColor', { label: 'Specular Color' });
+physicalFolder.slider(physical, 'ior', { label: 'IOR', min: 1, max: 2.333, step: 0.01 });
+
+const shininessSlider = materialFolder.slider(state.material.phong, 'shininess', { label: 'Shininess', min: 1, max: 200, step: 1 });
+const phongSpecularColor = materialFolder.color(state.material.phong, 'specular', { label: 'Specular Color' });
+const toonStepsSlider = materialFolder.slider(state.material.toon, 'steps', { label: 'Toon Steps', min: 2, max: 8, step: 1 });
+
+// Shows only the controls that apply to the selected material type.
+const folderElement = (folder: { wrapper: HTMLElement }) => folder.wrapper.closest<HTMLElement>('.p-gui__folder')!;
+const materialControls: [HTMLElement, MaterialType[]][] = [
+    [roughnessSlider.element, ['standard', 'physical']],
+    [metalnessSlider.element, ['standard', 'physical']],
+    // Toon materials ignore image-based lighting.
+    [envIntensitySlider.element, ['standard', 'physical', 'phong', 'lambert']],
+    [folderElement(envMapFolder), ['standard', 'physical', 'phong', 'lambert']],
+    [folderElement(physicalFolder), ['physical']],
+    [shininessSlider.element, ['phong']],
+    [phongSpecularColor.element, ['phong']],
+    [toonStepsSlider.element, ['toon']],
+];
+function updateMaterialControls() {
+    materialControls.forEach(([element, types]) => {
+        element.style.display = types.includes(state.material.type) ? '' : 'none';
+    });
+}
+materialTypeList.onChange(updateMaterialControls);
+updateMaterialControls();
 
 
 

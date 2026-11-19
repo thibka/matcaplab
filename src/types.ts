@@ -5,12 +5,33 @@ export type LightState = {
     elevation: number;
 };
 
+export type MaterialType = 'standard' | 'physical' | 'phong' | 'toon' | 'lambert';
+
+export type PhysicalState = {
+    clearcoat: number;
+    clearcoatRoughness: number;
+    sheen: number;
+    sheenColor: string;
+    sheenRoughness: number;
+    iridescence: number;
+    iridescenceIOR: number;
+    // Upper bound of the iridescence thickness range, in nanometers (the lower bound is 100).
+    iridescenceThickness: number;
+    specularIntensity: number;
+    specularColor: string;
+    ior: number;
+};
+
 export type MaterialState = {
+    type: MaterialType;
     color: string;
     roughness: number;
     metalness: number;
     envMap: string;
     envMapIntensity: number;
+    physical: PhysicalState;
+    phong: { shininess: number; specular: string };
+    toon: { steps: number };
 };
 
 export type EnvMapOption = {

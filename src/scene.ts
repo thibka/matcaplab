@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { EnvMapOption, PolyHavenFilesResponse, SceneState, ViewportLayout } from './types';
+import type { EnvMapOption, MaterialType, PolyHavenFilesResponse, SceneState, ViewportLayout } from './types';
 
 const NONE_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkBAMAAACCzIhnAAAALVBMVEUAAABQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFD0f7CQAAAADnRSTlMAEM/vcN8gkIA8n69gv9AeqN0AAAGeSURBVFjD7ZW7SgNBFIbPelmDiCxJL6ayEIIBCxuDYmUTrERUZBt78QFCQCxsrCysxMbSIIKt2Nja2IvmQkxivmcwE8Lu6c4+wHzVDuw/35kLZ8Tj8Xg8HsfNS6W1eiXZCS4YcxiPvh/jLIkaE/qx5HkSmx0SjoMS93ZiDsU5zcgu6wvY3I2Cm1ccRVsyBWyMZw4vwUlMatCd/BY2oGsnFoAtmVAYDyxO4S9ZVgkom5GGmjdPB7uyEPpKUqyBtf552E8lzagAdSMyC3UlkRysGZE7iJVEggo9I3LNQEtEvmgbkVfaWiJSZWBESvS0xFXaMSIVfpRkxBItIwLfqcSxCHYklaQRo7BUkq2wE3pa4pbftDdZSTJtcpWhlrg5fs0L04q0JMS8MNNQ15Ic7BmRHJSVRE4x+1gAXSWRBsR2g+EklcxAXywKoCQfsG9GZoCyHrxlan39OHkCjAaT9q6DOHlmlu1IHsfAtfFPYBhlkaygOMsiaUbvJKyLTZWia/gTupHYfLgzCR+A5JmxWNgWx+1zpXW0Kx6Px+PxjPgHBlQp+dv2kycAAAAASUVORK5CYII=";
 
@@ -52,6 +52,28 @@ export const ENV_MAPS: EnvMapOption[] = [
     },
 ];
 
+type SphereMaterial =
+    | THREE.MeshStandardMaterial
+    | THREE.MeshPhysicalMaterial
+    | THREE.MeshPhongMaterial
+    | THREE.MeshToonMaterial
+    | THREE.MeshLambertMaterial;
+
+function createSphereMaterial(type: MaterialType): SphereMaterial {
+    switch (type) {
+        case 'physical':
+            return new THREE.MeshPhysicalMaterial({ dithering: true });
+        case 'phong':
+            return new THREE.MeshPhongMaterial({ dithering: true });
+        case 'toon':
+            return new THREE.MeshToonMaterial({ dithering: true });
+        case 'lambert':
+            return new THREE.MeshLambertMaterial({ dithering: true });
+        default:
+            return new THREE.MeshStandardMaterial({ dithering: true });
+    }
+}
+
 // Geometry key of the model loaded by the user with loadCustomModel.
 export const CUSTOM_MODEL = 'custom';
 
@@ -90,7 +112,9 @@ export class MatcapScene {
     private scene: THREE.Scene;
     private camera: THREE.OrthographicCamera;
     private cameraViewSize: number;
-    private sphere: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
+    private sphere: THREE.Mesh<THREE.SphereGeometry, SphereMaterial>;
+    private sphereMaterials = new Map<MaterialType, SphereMaterial>();
+    private toonGradients = new Map<number, THREE.DataTexture>();
     private modelRadius = 1;
     private previewRadius = 0.85;
     private torusGeometry: THREE.TorusGeometry;
@@ -133,8 +157,7 @@ export class MatcapScene {
         this.camera.position.set(0, 0, 5);
 
         const sphereGeometry = new THREE.SphereGeometry(this.modelRadius, 128, 128);
-        const material = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.4, metalness: 0.1, dithering: true });
-        this.sphere = new THREE.Mesh(sphereGeometry, material);
+        this.sphere = new THREE.Mesh(sphereGeometry, this.getSphereMaterial('standard'));
         this.scene.add(this.sphere);
 
         this.ambient = new THREE.AmbientLight(0xffffff, 0.15);
@@ -397,20 +420,78 @@ export class MatcapScene {
         }
         this.currentEnvMapSlug = slug;
 
+        // Applied through scene.environment (intensity: scene.environmentIntensity) so that every
+        // material type supporting image-based lighting picks it up.
         if (!slug) {
             this.scene.environment = null;
-            this.sphere.material.envMap = null;
-            this.sphere.material.needsUpdate = true;
             return;
         }
         this.loadEnvMapTexture(slug).then((texture) => {
             if (this.currentEnvMapSlug === slug) {
                 this.scene.environment = texture;
-                this.sphere.material.envMap = texture;
-                this.sphere.material.needsUpdate = true;
                 this.renderMatcap();
             }
         });
+    }
+
+    // One material instance per type, created on first use and kept to avoid recompiling shaders.
+    private getSphereMaterial(type: MaterialType): SphereMaterial {
+        let material = this.sphereMaterials.get(type);
+        if (!material) {
+            material = createSphereMaterial(type);
+            this.sphereMaterials.set(type, material);
+        }
+        return material;
+    }
+
+    // Toon shading gradient with `steps` flat bands.
+    private getToonGradient(steps: number): THREE.DataTexture {
+        let gradient = this.toonGradients.get(steps);
+        if (!gradient) {
+            const data = new Uint8Array(steps);
+            for (let i = 0; i < steps; i++) {
+                data[i] = Math.round((i / (steps - 1)) * 255);
+            }
+            gradient = new THREE.DataTexture(data, steps, 1, THREE.RedFormat);
+            gradient.minFilter = THREE.NearestFilter;
+            gradient.magFilter = THREE.NearestFilter;
+            gradient.needsUpdate = true;
+            this.toonGradients.set(steps, gradient);
+        }
+        return gradient;
+    }
+
+    private updateSphereMaterial({ material: state }: SceneState) {
+        const material = this.getSphereMaterial(state.type);
+        this.sphere.material = material;
+        material.color.set(state.color);
+
+        // MeshPhysicalMaterial extends MeshStandardMaterial.
+        if (material instanceof THREE.MeshStandardMaterial) {
+            material.roughness = state.roughness;
+            material.metalness = state.metalness;
+        }
+        if (material instanceof THREE.MeshPhysicalMaterial) {
+            const physical = state.physical;
+            material.clearcoat = physical.clearcoat;
+            material.clearcoatRoughness = physical.clearcoatRoughness;
+            material.sheen = physical.sheen;
+            material.sheenColor.set(physical.sheenColor);
+            material.sheenRoughness = physical.sheenRoughness;
+            material.iridescence = physical.iridescence;
+            material.iridescenceIOR = physical.iridescenceIOR;
+            material.iridescenceThicknessRange = [100, physical.iridescenceThickness];
+            material.specularIntensity = physical.specularIntensity;
+            material.specularColor.set(physical.specularColor);
+            material.ior = physical.ior;
+        }
+        if (material instanceof THREE.MeshPhongMaterial) {
+            material.shininess = state.phong.shininess;
+            material.specular.set(state.phong.specular);
+        }
+        if (material instanceof THREE.MeshToonMaterial) {
+            material.gradientMap = this.getToonGradient(state.toon.steps);
+        }
     }
 
     private setGeometry(key: string) {
@@ -450,11 +531,9 @@ export class MatcapScene {
         this.ambient.color.set(state.ambient.color);
         this.ambient.intensity = state.ambient.intensity;
 
-        this.sphere.material.color.set(state.material.color);
-        this.sphere.material.roughness = state.material.roughness;
-        this.sphere.material.metalness = state.material.metalness;
+        this.updateSphereMaterial(state);
         this.setEnvMap(state.material.envMap);
-        this.sphere.material.envMapIntensity = state.material.envMapIntensity;
+        this.scene.environmentIntensity = state.material.envMapIntensity;
 
         this.scene.background = new THREE.Color(0x000000);
 
