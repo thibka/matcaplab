@@ -111,7 +111,7 @@ async function fetchWithTimeout(url: string): Promise<Response> {
     return response;
 }
 
-function lightPosition(azimuthDeg: number, elevationDeg: number, radius = 5): THREE.Vector3 {
+export function lightPosition(azimuthDeg: number, elevationDeg: number, radius = 5): THREE.Vector3 {
     const az = THREE.MathUtils.degToRad(azimuthDeg);
     const el = THREE.MathUtils.degToRad(elevationDeg);
     return new THREE.Vector3(radius * Math.cos(el) * Math.sin(az), radius * Math.sin(el), radius * Math.cos(el) * Math.cos(az));
