@@ -2,7 +2,7 @@ import * as THREE from 'three';
 // Loaders are only imported as types here: their code is fetched with import() on first use, keeping it out of the main bundle.
 import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
-import type { EnvMapOption, MaterialType, PolyHavenFilesResponse, SceneState, ViewportLayout } from './types';
+import type { AssetLoadEvent, EnvMapOption, MaterialType, PolyHavenFilesResponse, SceneState, ViewportLayout } from './types';
 
 const NONE_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkBAMAAACCzIhnAAAALVBMVEUAAABQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFD0f7CQAAAADnRSTlMAEM/vcN8gkIA8n69gv9AeqN0AAAGeSURBVFjD7ZW7SgNBFIbPelmDiCxJL6ayEIIBCxuDYmUTrERUZBt78QFCQCxsrCysxMbSIIKt2Nja2IvmQkxivmcwE8Lu6c4+wHzVDuw/35kLZ8Tj8Xg8HsfNS6W1eiXZCS4YcxiPvh/jLIkaE/qx5HkSmx0SjoMS93ZiDsU5zcgu6wvY3I2Cm1ccRVsyBWyMZw4vwUlMatCd/BY2oGsnFoAtmVAYDyxO4S9ZVgkom5GGmjdPB7uyEPpKUqyBtf552E8lzagAdSMyC3UlkRysGZE7iJVEggo9I3LNQEtEvmgbkVfaWiJSZWBESvS0xFXaMSIVfpRkxBItIwLfqcSxCHYklaQRo7BUkq2wE3pa4pbftDdZSTJtcpWhlrg5fs0L04q0JMS8MNNQ15Ic7BmRHJSVRE4x+1gAXSWRBsR2g+EklcxAXywKoCQfsG9GZoCyHrxlan39OHkCjAaT9q6DOHlmlu1IHsfAtfFPYBhlkaygOMsiaUbvJKyLTZWia/gTupHYfLgzCR+A5JmxWNgWx+1zpXW0Kx6Px+PxjPgHBlQp+dv2kycAAAAASUVORK5CYII=";
 
@@ -100,6 +100,17 @@ function sphericalUVs(position: THREE.BufferAttribute): THREE.BufferAttribute {
     return new THREE.BufferAttribute(uv, 2);
 }
 
+// Network requests to Poly Haven fail after this delay instead of leaving the GUI waiting forever.
+const REQUEST_TIMEOUT_MS = 20000;
+
+async function fetchWithTimeout(url: string): Promise<Response> {
+    const response = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    if (!response.ok) {
+        throw new Error(`Request failed (${response.status}): ${url}`);
+    }
+    return response;
+}
+
 function lightPosition(azimuthDeg: number, elevationDeg: number, radius = 5): THREE.Vector3 {
     const az = THREE.MathUtils.degToRad(azimuthDeg);
     const el = THREE.MathUtils.degToRad(elevationDeg);
@@ -123,9 +134,12 @@ export class MatcapScene {
     private hdrLoader: Promise<HDRLoader> | null = null;
     private pmremGenerator: THREE.PMREMGenerator;
     private envMapTextures = new Map<string, Promise<THREE.Texture>>();
+    // current* is the key requested by the GUI, applied* the one actually displayed (they differ while loading).
     private currentEnvMapSlug = '';
+    private appliedEnvMapSlug = '';
     private autoRotate = true;
     private currentGeometryKey = '';
+    private appliedGeometryKey = '';
     private keyLight: THREE.DirectionalLight;
     private fillLight: THREE.DirectionalLight;
     private rimLight: THREE.DirectionalLight;
@@ -140,6 +154,7 @@ export class MatcapScene {
     private matcapViewport = { x: 0, y: 0, width: 0, height: 0 };
     private previewViewport = { x: 0, y: 0, width: 0, height: 0 };
     private layout: ViewportLayout = 'split';
+    onAssetLoad: ((event: AssetLoadEvent) => void) | null = null;
     // Render-on-demand flags: each on-screen pass is redrawn only when its content changed.
     private sphereDirty = true;
     private previewDirty = true;
@@ -201,6 +216,7 @@ export class MatcapScene {
         this.previewMesh = new THREE.Mesh(this.torusGeometry, previewMaterial);
         this.previewScene.add(this.previewMesh);
         this.currentGeometryKey = 'torus';
+        this.appliedGeometryKey = 'torus';
 
         new ResizeObserver(() => this.resize()).observe(container);
         this.watchPixelRatio();
@@ -447,10 +463,7 @@ export class MatcapScene {
     }
 
     private async resolvePolyHavenHdrUrl(slug: string): Promise<string> {
-        const response = await fetch(`https://api.polyhaven.com/files/${slug}`);
-        if (!response.ok) {
-            throw new Error(`Poly Haven files request failed for "${slug}" (${response.status})`);
-        }
+        const response = await fetchWithTimeout(`https://api.polyhaven.com/files/${slug}`);
         const data: PolyHavenFilesResponse = await response.json();
         const resolutions = Object.entries(data.hdri ?? {}).sort(([a], [b]) => parseInt(a) - parseInt(b));
         const url = resolutions[0]?.[1]?.hdr?.url;
@@ -463,21 +476,22 @@ export class MatcapScene {
     private loadEnvMapTexture(slug: string): Promise<THREE.Texture> {
         let loading = this.envMapTextures.get(slug);
         if (!loading) {
-            loading = this.resolvePolyHavenHdrUrl(slug).then(
-                (url) =>
-                    new Promise<THREE.Texture>((resolve, reject) => {
-                        this.getHDRLoader().then((loader) => loader.load(
-                            url,
-                            (texture) => {
-                                const envMap = this.pmremGenerator.fromEquirectangular(texture).texture;
-                                texture.dispose();
-                                resolve(envMap);
-                            },
-                            undefined,
-                            reject,
-                        ), reject);
-                    }),
-            );
+            // The .hdr is downloaded with fetch (so it can time out) and handed to HDRLoader as a blob URL.
+            loading = this.resolvePolyHavenHdrUrl(slug)
+                .then((url) => fetchWithTimeout(url))
+                .then((response) => response.blob())
+                .then(async (blob) => {
+                    const loader = await this.getHDRLoader();
+                    const blobUrl = URL.createObjectURL(blob);
+                    try {
+                        const texture = await loader.loadAsync(blobUrl);
+                        const envMap = this.pmremGenerator.fromEquirectangular(texture).texture;
+                        texture.dispose();
+                        return envMap;
+                    } finally {
+                        URL.revokeObjectURL(blobUrl);
+                    }
+                });
             loading.catch(() => this.envMapTextures.delete(slug));
             this.envMapTextures.set(slug, loading);
         }
@@ -494,14 +508,30 @@ export class MatcapScene {
         // material type supporting image-based lighting picks it up.
         if (!slug) {
             this.scene.environment = null;
+            this.appliedEnvMapSlug = '';
+            this.onAssetLoad?.({ kind: 'envMap', key: slug, status: 'ready' });
             return;
         }
-        this.loadEnvMapTexture(slug).then((texture) => {
-            if (this.currentEnvMapSlug === slug) {
+        this.onAssetLoad?.({ kind: 'envMap', key: slug, status: 'loading' });
+        this.loadEnvMapTexture(slug).then(
+            (texture) => {
+                if (this.currentEnvMapSlug !== slug) {
+                    return;
+                }
                 this.scene.environment = texture;
+                this.appliedEnvMapSlug = slug;
                 this.renderMatcap();
-            }
-        });
+                this.onAssetLoad?.({ kind: 'envMap', key: slug, status: 'ready' });
+            },
+            (error) => {
+                if (this.currentEnvMapSlug !== slug) {
+                    return;
+                }
+                // Back to what is still displayed, so selecting the failed env map again retries it.
+                this.currentEnvMapSlug = this.appliedEnvMapSlug;
+                this.onAssetLoad?.({ kind: 'envMap', key: slug, status: 'error', error, fallback: this.appliedEnvMapSlug });
+            },
+        );
     }
 
     // One material instance per type, created on first use and kept to avoid recompiling shaders.
@@ -571,19 +601,39 @@ export class MatcapScene {
         this.currentGeometryKey = key;
         if (key === 'torus') {
             this.previewMesh.geometry = this.torusGeometry;
+            this.appliedGeometryKey = key;
+            this.onAssetLoad?.({ kind: 'model', key, status: 'ready' });
             return;
         }
         if (key === CUSTOM_MODEL) {
+            // The user model is loaded beforehand by loadCustomModel; without one, keep the displayed model.
             if (this.customGeometry) {
                 this.previewMesh.geometry = this.customGeometry;
+                this.appliedGeometryKey = key;
+                this.onAssetLoad?.({ kind: 'model', key, status: 'ready' });
+            } else {
+                this.currentGeometryKey = this.appliedGeometryKey;
             }
             return;
         }
-        this.loadModelGeometry(key).then((geometry) => {
-            if (this.currentGeometryKey === key) {
+        this.onAssetLoad?.({ kind: 'model', key, status: 'loading' });
+        this.loadModelGeometry(key).then(
+            (geometry) => {
+                if (this.currentGeometryKey !== key) {
+                    return;
+                }
                 this.previewMesh.geometry = geometry;
-            }
-        });
+                this.appliedGeometryKey = key;
+                this.onAssetLoad?.({ kind: 'model', key, status: 'ready' });
+            },
+            (error) => {
+                if (this.currentGeometryKey !== key) {
+                    return;
+                }
+                this.currentGeometryKey = this.appliedGeometryKey;
+                this.onAssetLoad?.({ kind: 'model', key, status: 'error', error, fallback: this.appliedGeometryKey });
+            },
+        );
     }
 
     update(state: SceneState) {

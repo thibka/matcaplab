@@ -1,7 +1,8 @@
 import './styles/styles.scss';
 import GUI from 'perfect-gui';
 import { MatcapScene, ENV_MAPS, CUSTOM_MODEL } from './scene';
-import type { MaterialType, SceneState, ViewportLayout } from './types';
+import { AssetStatus, describeLoadError } from './status';
+import type { AssetKind, MaterialType, SceneState, ViewportLayout } from './types';
 import { randomInRange, randomColor, hslToHex } from './helpers';
 import { applyState, readStateFromHash, snapshotState, stateToHash, type StateEnums } from './state';
 import { StateHistory } from './history';
@@ -246,15 +247,29 @@ function pickFile(accept: string): Promise<File | null> {
 }
 
 // Shows a user .glb/.gltf in the preview.
+// Reports progress and failures like the bundled assets (viewport badge + model control); on failure the
+// current model stays, and Retry asks for another file since reading the same one again would fail the same way.
 async function loadCustomModel(file: File) {
+    assetStatus.loading('model', file.name);
+    markGuiControl('model', CUSTOM_MODEL, 'loading');
     try {
         await scene.loadCustomModel(file);
-        state.model.geometry = CUSTOM_MODEL;
-        refresh();
     } catch (error) {
         console.error(`Could not load model "${file.name}"`, error);
-        alert(`Could not load "${file.name}". Only self-contained .glb/.gltf files are supported.`);
+        markGuiControl('model', CUSTOM_MODEL, 'error');
+        assetStatus.error(
+            'model',
+            `Couldn't load ${file.name}: only self-contained .glb/.gltf files are supported.`,
+            () => pickFile('.glb,.gltf').then((next) => next && loadCustomModel(next)),
+            () => markGuiControl('model', CUSTOM_MODEL, null),
+        );
+        return;
     }
+    assetStatus.clear('model');
+    markGuiControl('model', CUSTOM_MODEL, null);
+    state.model.geometry = CUSTOM_MODEL;
+    syncLists();
+    refresh();
 }
 
 // Dropping a file anywhere loads it: a .glb/.gltf model or a .json preset.
@@ -511,5 +526,56 @@ materialTypeList.onChange(updateMaterialControls);
 updateMaterialControls();
 
 
+const assetStatus = new AssetStatus(document.querySelector<HTMLDivElement>('#asset-status')!);
+
+function assetLabel(kind: AssetKind, key: string): string {
+    if (kind === 'envMap') {
+        return ENV_MAPS.find((option) => option.slug === key)?.label ?? key;
+    }
+    return key.charAt(0).toUpperCase() + key.slice(1);
+}
+
+function selectAsset(kind: AssetKind, key: string) {
+    if (kind === 'envMap') {
+        selectEnvMap(key);
+    } else {
+        state.model.geometry = key;
+        syncLists();
+    }
+}
+
+// Flags the GUI control of an asset as loading or failed (the model list is a single control).
+function markGuiControl(kind: AssetKind, key: string, status: 'loading' | 'error' | null) {
+    const controls = kind === 'envMap' ? envMapImages : [{ slug: key, element: modelList.element }];
+    controls.forEach(({ slug, element }) => {
+        element.classList.toggle('is-loading', status === 'loading' && slug === key);
+        element.classList.toggle('is-error', status === 'error' && slug === key);
+    });
+}
+
+// On failure the scene keeps the previous asset, so the GUI selection reverts to it and the error offers a retry.
+scene.onAssetLoad = (event) => {
+    const label = assetLabel(event.kind, event.key);
+    if (event.status === 'loading') {
+        assetStatus.loading(event.kind, label);
+        markGuiControl(event.kind, event.key, 'loading');
+    } else if (event.status === 'ready') {
+        assetStatus.clear(event.kind);
+        markGuiControl(event.kind, event.key, null);
+    } else {
+        console.error(`Failed to load ${label}:`, event.error);
+        selectAsset(event.kind, event.fallback);
+        markGuiControl(event.kind, event.key, 'error');
+        assetStatus.error(
+            event.kind,
+            `Couldn't load ${label} (${describeLoadError(event.error)}).`,
+            () => {
+                selectAsset(event.kind, event.key);
+                refresh();
+            },
+            () => markGuiControl(event.kind, event.key, null),
+        );
+    }
+};
 
 refresh();
