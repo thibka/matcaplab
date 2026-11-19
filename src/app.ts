@@ -3,7 +3,7 @@ import GUI from 'perfect-gui';
 import { MatcapScene, ENV_MAPS } from './scene';
 import type { SceneState, ViewportLayout } from './types';
 import { randomInRange, randomColor, hslToHex } from './helpers';
-import { applyState, readStateFromHash, stateToHash, type StateEnums } from './state';
+import { applyState, readStateFromHash, snapshotState, stateToHash, type StateEnums } from './state';
 
 const viewport = document.querySelector<HTMLDivElement>('#viewport')!;
 const preview = document.querySelector<HTMLDivElement>('#preview')!;
@@ -97,6 +97,45 @@ async function copyToClipboard(text: string): Promise<boolean> {
     }
 }
 
+const PRESET_FORMAT = 'matcaplab-preset';
+
+function downloadFile(content: BlobPart, type: string, filename: string) {
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function savePreset() {
+    const preset = { format: PRESET_FORMAT, version: 1, state: snapshotState(state) };
+    downloadFile(JSON.stringify(preset, null, 2), 'application/json', 'matcap-preset.json');
+}
+
+// Loads a preset file written by savePreset (a bare state object is accepted too).
+async function loadPresetFile(file: File) {
+    try {
+        const data = JSON.parse(await file.text());
+        loadState(data?.format === PRESET_FORMAT ? data.state : data);
+    } catch (error) {
+        console.error(`Could not load preset "${file.name}"`, error);
+        alert(`"${file.name}" is not a valid MatcapLab preset.`);
+    }
+}
+
+// Opens the native file picker and resolves with the chosen file, if any.
+function pickFile(accept: string): Promise<File | null> {
+    return new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = accept;
+        input.addEventListener('change', () => resolve(input.files?.[0] ?? null));
+        input.addEventListener('cancel', () => resolve(null));
+        input.click();
+    });
+}
+
 async function copyShareLink(button: HTMLElement) {
     syncUrl();
     const url = location.href;
@@ -149,6 +188,13 @@ gui.button({ label: 'Randomize' }).onClick(randomizePreset);
 const presetFolder = gui.folder({ label: 'Preset' });
 const copyLinkButton = presetFolder.button({ label: 'Copy link' });
 copyLinkButton.onClick(() => copyShareLink(copyLinkButton.element));
+presetFolder.button({ label: 'Save preset (.json)' }).onClick(savePreset);
+presetFolder.button({ label: 'Load preset (.json)' }).onClick(async () => {
+    const file = await pickFile('.json,application/json');
+    if (file) {
+        loadPresetFile(file);
+    }
+});
 
 const exportFolder = gui.folder({ label: 'Export' });
 exportFolder.list(state, 'exportSize', EXPORT_SIZES, { label: 'Size' });
