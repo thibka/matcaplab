@@ -4,6 +4,7 @@ import { MatcapScene, ENV_MAPS } from './scene';
 import type { SceneState, ViewportLayout } from './types';
 import { randomInRange, randomColor, hslToHex } from './helpers';
 import { applyState, readStateFromHash, snapshotState, stateToHash, type StateEnums } from './state';
+import { StateHistory } from './history';
 
 const viewport = document.querySelector<HTMLDivElement>('#viewport')!;
 const preview = document.querySelector<HTMLDivElement>('#preview')!;
@@ -32,6 +33,8 @@ const STATE_ENUMS: StateEnums = {
 // Restores a shared state from the URL hash before the GUI reads its initial values.
 applyState(state, readStateFromHash(location.hash), STATE_ENUMS);
 
+const undoHistory = new StateHistory(JSON.stringify(state));
+
 const scene = new MatcapScene(viewport, preview);
 
 function setLayout(layout: ViewportLayout) {
@@ -48,22 +51,80 @@ setLayout('overlay');
 
 function refresh() {
     scene.update(state);
-    scheduleUrlSync();
+    scheduleSettle();
 }
 
-// Keeps the URL hash in sync with the state (debounced, without adding browser history entries).
-let urlSyncTimeout = 0;
+// Once the state stops changing (e.g. at the end of a slider drag), records an undo step
+// and syncs the URL hash, so a whole drag is a single undo step.
+let settleTimeout = 0;
+let pointerDown = false;
+function scheduleSettle() {
+    clearTimeout(settleTimeout);
+    if (!pointerDown) {
+        settleTimeout = window.setTimeout(settle, 300);
+    }
+}
+
+// A slow drag can pause longer than the debounce: wait for the pointer release instead.
+window.addEventListener('pointerdown', () => (pointerDown = true), true);
+window.addEventListener('pointerup', () => {
+    pointerDown = false;
+    scheduleSettle();
+}, true);
+window.addEventListener('pointercancel', () => (pointerDown = false), true);
+
+function settle() {
+    clearTimeout(settleTimeout);
+    undoHistory.commit(JSON.stringify(state));
+    syncUrl();
+}
+
+// Keeps the URL hash in sync with the state, without adding browser history entries.
 let lastWrittenHash = '';
-function scheduleUrlSync() {
-    clearTimeout(urlSyncTimeout);
-    urlSyncTimeout = window.setTimeout(syncUrl, 300);
-}
-
 function syncUrl() {
-    clearTimeout(urlSyncTimeout);
     lastWrittenHash = stateToHash(state);
     history.replaceState(null, '', lastWrittenHash);
 }
+
+function undo() {
+    settle();
+    const previous = undoHistory.undo();
+    if (previous) {
+        loadState(JSON.parse(previous));
+    }
+}
+
+function redo() {
+    settle();
+    const next = undoHistory.redo();
+    if (next) {
+        loadState(JSON.parse(next));
+    }
+}
+
+// Cmd/Ctrl+Z undoes, Cmd/Ctrl+Shift+Z and Ctrl+Y redo. Text fields keep their native undo.
+window.addEventListener('keydown', (event) => {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey) {
+        return;
+    }
+    const target = event.target as HTMLElement;
+    const isTextField = target instanceof HTMLTextAreaElement || (target instanceof HTMLInputElement && !['color', 'checkbox', 'range', 'button'].includes(target.type));
+    if (isTextField || target.isContentEditable) {
+        return;
+    }
+    const key = event.key.toLowerCase();
+    if (key === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) {
+            redo();
+        } else {
+            undo();
+        }
+    } else if (key === 'y' && event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        redo();
+    }
+});
 
 // Applies an external state (shared link, preset) to the live state and the GUI.
 function loadState(source: unknown) {
@@ -137,7 +198,7 @@ function pickFile(accept: string): Promise<File | null> {
 }
 
 async function copyShareLink(button: HTMLElement) {
-    syncUrl();
+    settle();
     const url = location.href;
     if (!(await copyToClipboard(url))) {
         window.prompt('Copy this link:', url);
@@ -183,7 +244,7 @@ const gui = new GUI({
     label: 'Settings'
 });
 
-gui.button({ label: 'Randomize' }).onClick(randomizePreset);
+gui.button({ label: 'Randomize', tooltip: 'Undo with Ctrl/Cmd+Z' }).onClick(randomizePreset);
 
 const presetFolder = gui.folder({ label: 'Preset' });
 const copyLinkButton = presetFolder.button({ label: 'Copy link' });
