@@ -1,8 +1,7 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
-import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+// Loaders are only imported as types here: their code is fetched with import() on first use, keeping it out of the main bundle.
+import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import type { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 import type { EnvMapOption, MaterialType, PolyHavenFilesResponse, SceneState, ViewportLayout } from './types';
 
 const NONE_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkBAMAAACCzIhnAAAALVBMVEUAAABQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFD0f7CQAAAADnRSTlMAEM/vcN8gkIA8n69gv9AeqN0AAAGeSURBVFjD7ZW7SgNBFIbPelmDiCxJL6ayEIIBCxuDYmUTrERUZBt78QFCQCxsrCysxMbSIIKt2Nja2IvmQkxivmcwE8Lu6c4+wHzVDuw/35kLZ8Tj8Xg8HsfNS6W1eiXZCS4YcxiPvh/jLIkaE/qx5HkSmx0SjoMS93ZiDsU5zcgu6wvY3I2Cm1ccRVsyBWyMZw4vwUlMatCd/BY2oGsnFoAtmVAYDyxO4S9ZVgkom5GGmjdPB7uyEPpKUqyBtf552E8lzagAdSMyC3UlkRysGZE7iJVEggo9I3LNQEtEvmgbkVfaWiJSZWBESvS0xFXaMSIVfpRkxBItIwLfqcSxCHYklaQRo7BUkq2wE3pa4pbftDdZSTJtcpWhlrg5fs0L04q0JMS8MNNQ15Ic7BmRHJSVRE4x+1gAXSWRBsR2g+EklcxAXywKoCQfsG9GZoCyHrxlan39OHkCjAaT9q6DOHlmlu1IHsfAtfFPYBhlkaygOMsiaUbvJKyLTZWia/gTupHYfLgzCR+A5JmxWNgWx+1zpXW0Kx6Px+PxjPgHBlQp+dv2kycAAAAASUVORK5CYII=";
@@ -118,10 +117,10 @@ export class MatcapScene {
     private modelRadius = 1;
     private previewRadius = 0.85;
     private torusGeometry: THREE.TorusGeometry;
-    private gltfLoader: GLTFLoader | null = null;
+    private gltfLoader: Promise<GLTFLoader> | null = null;
     private modelGeometries = new Map<string, Promise<THREE.BufferGeometry>>();
     private customGeometry: THREE.BufferGeometry | null = null;
-    private hdrLoader: HDRLoader;
+    private hdrLoader: Promise<HDRLoader> | null = null;
     private pmremGenerator: THREE.PMREMGenerator;
     private envMapTextures = new Map<string, Promise<THREE.Texture>>();
     private currentEnvMapSlug = '';
@@ -141,14 +140,18 @@ export class MatcapScene {
     private matcapViewport = { x: 0, y: 0, width: 0, height: 0 };
     private previewViewport = { x: 0, y: 0, width: 0, height: 0 };
     private layout: ViewportLayout = 'split';
+    // Render-on-demand flags: each on-screen pass is redrawn only when its content changed.
+    private sphereDirty = true;
+    private previewDirty = true;
+    private renderedPreviewGeometry: THREE.BufferGeometry | null = null;
 
     constructor(container: HTMLElement, previewElement: HTMLElement) {
         this.container = container;
         this.previewElement = previewElement;
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        // preserveDrawingBuffer keeps the last sphere pass on screen while only the preview is redrawn.
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
         this.renderer.setPixelRatio(window.devicePixelRatio);
         container.appendChild(this.renderer.domElement);
-        this.hdrLoader = new HDRLoader();
         this.pmremGenerator = new THREE.PMREMGenerator(this.renderer);
         this.pmremGenerator.compileEquirectangularShader();
 
@@ -185,7 +188,9 @@ export class MatcapScene {
         this.previewCamera.position.set(0, 0, 5);
 
         this.torusGeometry = new THREE.TorusGeometry(this.previewRadius, this.previewRadius * 0.4, 64, 128);
-        const previewNormalMap = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}textures/Concrete047A_1K-JPG_NormalGL.jpg`);
+        const previewNormalMap = new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}textures/Concrete047A_1K-JPG_NormalGL.jpg`, () => {
+            this.previewDirty = true;
+        });
         previewNormalMap.wrapS = THREE.RepeatWrapping;
         previewNormalMap.wrapT = THREE.RepeatWrapping;
         const previewMaterial = new THREE.MeshMatcapMaterial({
@@ -197,9 +202,22 @@ export class MatcapScene {
         this.previewScene.add(this.previewMesh);
         this.currentGeometryKey = 'torus';
 
-        window.addEventListener('resize', () => this.resize());
+        new ResizeObserver(() => this.resize()).observe(container);
+        this.watchPixelRatio();
         this.resize();
         this.animate();
+    }
+
+    // Re-applies the pixel ratio when the window moves to a screen with another density (or the page is zoomed).
+    private watchPixelRatio() {
+        matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener(
+            'change',
+            () => {
+                this.resize();
+                this.watchPixelRatio();
+            },
+            { once: true },
+        );
     }
 
     setLayout(layout: ViewportLayout) {
@@ -209,8 +227,11 @@ export class MatcapScene {
 
     private resize() {
         const { clientWidth, clientHeight } = this.container;
+        this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.setSize(clientWidth, clientHeight);
         this.updateViewports();
+        // setSize clears the canvas: redraw right away instead of showing a blank frame until the next tick.
+        this.renderFrame();
     }
 
     private updateViewports() {
@@ -244,6 +265,7 @@ export class MatcapScene {
         this.camera.top = this.cameraViewSize;
         this.camera.bottom = -this.cameraViewSize;
         this.camera.updateProjectionMatrix();
+        this.sphereDirty = true;
     }
 
     private animate = () => {
@@ -251,29 +273,69 @@ export class MatcapScene {
 
         if (this.autoRotate) {
             this.previewMesh.rotation.y += 0.006;
+            this.previewDirty = true;
         }
 
-        // Scissored matcap sphere pass
-        this.renderer.setScissorTest(true);
-        this.renderer.setScissor(this.matcapViewport.x, this.matcapViewport.y, this.matcapViewport.width, this.matcapViewport.height);
-        this.renderer.setViewport(this.matcapViewport.x, this.matcapViewport.y, this.matcapViewport.width, this.matcapViewport.height);
-        this.renderer.render(this.scene, this.camera);
-
-        // Scissored model preview pass
-        this.renderer.setScissor(this.previewViewport.x, this.previewViewport.y, this.previewViewport.width, this.previewViewport.height);
-        this.renderer.setViewport(this.previewViewport.x, this.previewViewport.y, this.previewViewport.width, this.previewViewport.height);
-        this.previewCamera.aspect = this.previewViewport.width / this.previewViewport.height;
-        this.previewCamera.updateProjectionMatrix();
-        this.renderer.render(this.previewScene, this.previewCamera);
-        this.renderer.setScissorTest(false);
+        this.renderFrame();
     };
 
-    // Lazily creates a GLTFLoader able to decode Draco-compressed meshes (decoder files are bundled by Vite).
-    private getGLTFLoader(): GLTFLoader {
+    // Draws only the passes whose content changed since the last frame; the canvas keeps the others.
+    private renderFrame() {
+        if (this.previewMesh.geometry !== this.renderedPreviewGeometry) {
+            this.previewDirty = true;
+        }
+        if (!this.sphereDirty && !this.previewDirty) {
+            return;
+        }
+
+        this.renderer.setScissorTest(true);
+
+        if (this.sphereDirty) {
+            // Scissored matcap sphere pass
+            this.renderer.setScissor(this.matcapViewport.x, this.matcapViewport.y, this.matcapViewport.width, this.matcapViewport.height);
+            this.renderer.setViewport(this.matcapViewport.x, this.matcapViewport.y, this.matcapViewport.width, this.matcapViewport.height);
+            this.renderer.render(this.scene, this.camera);
+            this.sphereDirty = false;
+            // In overlay layout the sphere pass paints under the preview, which must then be drawn again.
+            this.previewDirty = true;
+        }
+
+        if (this.previewDirty) {
+            // Scissored model preview pass
+            this.renderer.setScissor(this.previewViewport.x, this.previewViewport.y, this.previewViewport.width, this.previewViewport.height);
+            this.renderer.setViewport(this.previewViewport.x, this.previewViewport.y, this.previewViewport.width, this.previewViewport.height);
+            this.previewCamera.aspect = this.previewViewport.width / this.previewViewport.height;
+            this.previewCamera.updateProjectionMatrix();
+            this.renderer.render(this.previewScene, this.previewCamera);
+            this.previewDirty = false;
+            this.renderedPreviewGeometry = this.previewMesh.geometry;
+        }
+
+        this.renderer.setScissorTest(false);
+    }
+
+    // Lazily imports and creates a GLTFLoader able to decode Draco-compressed meshes (decoder files are bundled by Vite).
+    private getGLTFLoader(): Promise<GLTFLoader> {
         if (!this.gltfLoader) {
-            this.gltfLoader = new GLTFLoader().setDRACOLoader(new DRACOLoader());
+            this.gltfLoader = Promise.all([
+                import('three/examples/jsm/loaders/GLTFLoader.js'),
+                import('three/examples/jsm/loaders/DRACOLoader.js'),
+            ]).then(([{ GLTFLoader }, { DRACOLoader, DRACO_GLTF_CONFIG }]) =>
+                // glTF-specific Draco decoder: lighter than the default generic one (192 KB of wasm instead of 286 KB).
+                new GLTFLoader().setDRACOLoader(new DRACOLoader().setDecoderPath(DRACO_GLTF_CONFIG)),
+            );
+            this.gltfLoader.catch(() => (this.gltfLoader = null));
         }
         return this.gltfLoader;
+    }
+
+    // Lazily imports and creates the HDR loader, only needed once an environment map is picked.
+    private getHDRLoader(): Promise<HDRLoader> {
+        if (!this.hdrLoader) {
+            this.hdrLoader = import('three/examples/jsm/loaders/HDRLoader.js').then(({ HDRLoader }) => new HDRLoader());
+            this.hdrLoader.catch(() => (this.hdrLoader = null));
+        }
+        return this.hdrLoader;
     }
 
     // Loads the first mesh geometry of public/models/<name>.glb, cached per model name.
@@ -282,7 +344,7 @@ export class MatcapScene {
         if (!loading) {
             const file = `${name}.glb`;
             loading = new Promise<THREE.BufferGeometry>((resolve, reject) => {
-                this.getGLTFLoader().load(
+                this.getGLTFLoader().then((loader) => loader.load(
                     `${import.meta.env.BASE_URL}models/${file}`,
                     (gltf) => {
                         let geometry: THREE.BufferGeometry | null = null;
@@ -301,7 +363,7 @@ export class MatcapScene {
                     },
                     undefined,
                     reject,
-                );
+                ), reject);
             });
             // Evict the failed entry so a future call retries instead of reusing the rejected promise.
             loading.catch(() => this.modelGeometries.delete(name));
@@ -317,7 +379,11 @@ export class MatcapScene {
     // Loads a user .glb/.gltf (self-contained): all its meshes are merged in world space,
     // centered and scaled to fit the preview. It is shown when the geometry key is CUSTOM_MODEL.
     async loadCustomModel(file: File): Promise<void> {
-        const gltf = await this.getGLTFLoader().parseAsync(await file.arrayBuffer(), '');
+        const [loader, { mergeGeometries }] = await Promise.all([
+            this.getGLTFLoader(),
+            import('three/examples/jsm/utils/BufferGeometryUtils.js'),
+        ]);
+        const gltf = await loader.parseAsync(await file.arrayBuffer(), '');
         gltf.scene.updateMatrixWorld(true);
 
         const parts: THREE.BufferGeometry[] = [];
@@ -400,7 +466,7 @@ export class MatcapScene {
             loading = this.resolvePolyHavenHdrUrl(slug).then(
                 (url) =>
                     new Promise<THREE.Texture>((resolve, reject) => {
-                        this.hdrLoader.load(
+                        this.getHDRLoader().then((loader) => loader.load(
                             url,
                             (texture) => {
                                 const envMap = this.pmremGenerator.fromEquirectangular(texture).texture;
@@ -409,7 +475,7 @@ export class MatcapScene {
                             },
                             undefined,
                             reject,
-                        );
+                        ), reject);
                     }),
             );
             loading.catch(() => this.envMapTextures.delete(slug));
@@ -554,6 +620,8 @@ export class MatcapScene {
         this.renderer.setRenderTarget(this.matcapTarget);
         this.renderer.render(this.scene, this.matcapCamera);
         this.renderer.setRenderTarget(prevTarget);
+        // The on-screen sphere shows the same scene, so it is now stale too.
+        this.sphereDirty = true;
     }
 
     // Renders the current sphere setup to a square PNG and triggers a download.
