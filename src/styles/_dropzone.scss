@@ -1,0 +1,22 @@
+// Overlay shown while a file is dragged over the window (see the drop handlers in app.ts).
+body::after {
+    content: 'Drop a .glb model or a .json preset';
+    position: fixed;
+    inset: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed #06ff89;
+    border-radius: 12px;
+    background: rgba(10, 10, 10, 0.75);
+    color: #eee;
+    font-size: 18px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 100000; // above the perfect-gui panel
+}
+
+body.is-dragging-file::after {
+    opacity: 1;
+}

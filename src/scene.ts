@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { EnvMapOption, PolyHavenFilesResponse, SceneState, ViewportLayout } from './types';
 
 const NONE_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkBAMAAACCzIhnAAAALVBMVEUAAABQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFD0f7CQAAAADnRSTlMAEM/vcN8gkIA8n69gv9AeqN0AAAGeSURBVFjD7ZW7SgNBFIbPelmDiCxJL6ayEIIBCxuDYmUTrERUZBt78QFCQCxsrCysxMbSIIKt2Nja2IvmQkxivmcwE8Lu6c4+wHzVDuw/35kLZ8Tj8Xg8HsfNS6W1eiXZCS4YcxiPvh/jLIkaE/qx5HkSmx0SjoMS93ZiDsU5zcgu6wvY3I2Cm1ccRVsyBWyMZw4vwUlMatCd/BY2oGsnFoAtmVAYDyxO4S9ZVgkom5GGmjdPB7uyEPpKUqyBtf552E8lzagAdSMyC3UlkRysGZE7iJVEggo9I3LNQEtEvmgbkVfaWiJSZWBESvS0xFXaMSIVfpRkxBItIwLfqcSxCHYklaQRo7BUkq2wE3pa4pbftDdZSTJtcpWhlrg5fs0L04q0JMS8MNNQ15Ic7BmRHJSVRE4x+1gAXSWRBsR2g+EklcxAXywKoCQfsG9GZoCyHrxlan39OHkCjAaT9q6DOHlmlu1IHsfAtfFPYBhlkaygOMsiaUbvJKyLTZWia/gTupHYfLgzCR+A5JmxWNgWx+1zpXW0Kx6Px+PxjPgHBlQp+dv2kycAAAAASUVORK5CYII=";
@@ -51,6 +52,33 @@ export const ENV_MAPS: EnvMapOption[] = [
     },
 ];
 
+// Geometry key of the model loaded by the user with loadCustomModel.
+export const CUSTOM_MODEL = 'custom';
+
+// Copies an attribute into a plain Float32 attribute (de-interleaved, de-quantized), so it can be transformed and merged.
+function toFloat32Attribute(attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): THREE.BufferAttribute {
+    const { count, itemSize } = attribute;
+    const array = new Float32Array(count * itemSize);
+    for (let i = 0; i < count; i++) {
+        for (let c = 0; c < itemSize; c++) {
+            array[i * itemSize + c] = attribute.getComponent(i, c);
+        }
+    }
+    return new THREE.BufferAttribute(array, itemSize);
+}
+
+// Spherical UVs, used when a model has none (the preview normal map needs UVs).
+function sphericalUVs(position: THREE.BufferAttribute): THREE.BufferAttribute {
+    const uv = new Float32Array(position.count * 2);
+    const point = new THREE.Vector3();
+    for (let i = 0; i < position.count; i++) {
+        point.fromBufferAttribute(position, i).normalize();
+        uv[i * 2] = 0.5 + Math.atan2(point.x, point.z) / (2 * Math.PI);
+        uv[i * 2 + 1] = 0.5 + Math.asin(THREE.MathUtils.clamp(point.y, -1, 1)) / Math.PI;
+    }
+    return new THREE.BufferAttribute(uv, 2);
+}
+
 function lightPosition(azimuthDeg: number, elevationDeg: number, radius = 5): THREE.Vector3 {
     const az = THREE.MathUtils.degToRad(azimuthDeg);
     const el = THREE.MathUtils.degToRad(elevationDeg);
@@ -68,6 +96,7 @@ export class MatcapScene {
     private torusGeometry: THREE.TorusGeometry;
     private gltfLoader: GLTFLoader | null = null;
     private modelGeometries = new Map<string, Promise<THREE.BufferGeometry>>();
+    private customGeometry: THREE.BufferGeometry | null = null;
     private hdrLoader: HDRLoader;
     private pmremGenerator: THREE.PMREMGenerator;
     private envMapTextures = new Map<string, Promise<THREE.Texture>>();
@@ -254,6 +283,76 @@ export class MatcapScene {
         return loading;
     }
 
+    get hasCustomModel(): boolean {
+        return this.customGeometry !== null;
+    }
+
+    // Loads a user .glb/.gltf (self-contained): all its meshes are merged in world space,
+    // centered and scaled to fit the preview. It is shown when the geometry key is CUSTOM_MODEL.
+    async loadCustomModel(file: File): Promise<void> {
+        const gltf = await this.getGLTFLoader().parseAsync(await file.arrayBuffer(), '');
+        gltf.scene.updateMatrixWorld(true);
+
+        const parts: THREE.BufferGeometry[] = [];
+        gltf.scene.traverse((child) => {
+            const mesh = child as THREE.Mesh;
+            const position = mesh.isMesh ? mesh.geometry.getAttribute('position') : undefined;
+            if (!position) {
+                return;
+            }
+            const part = new THREE.BufferGeometry();
+            part.setAttribute('position', toFloat32Attribute(position));
+            const normal = mesh.geometry.getAttribute('normal');
+            if (normal) {
+                part.setAttribute('normal', toFloat32Attribute(normal));
+            }
+            const uv = mesh.geometry.getAttribute('uv');
+            if (uv) {
+                part.setAttribute('uv', toFloat32Attribute(uv));
+            }
+            if (mesh.geometry.index) {
+                part.setIndex(mesh.geometry.index.clone());
+            }
+            part.applyMatrix4(mesh.matrixWorld);
+            if (!normal) {
+                part.computeVertexNormals();
+            }
+            parts.push(part);
+        });
+        if (parts.length === 0) {
+            throw new Error(`No mesh found in ${file.name}`);
+        }
+
+        // mergeGeometries needs the same attributes everywhere, and either all or none indexed.
+        const allIndexed = parts.every((part) => part.index);
+        const geometries = parts.map((part) => {
+            const geometry = allIndexed ? part : part.index ? part.toNonIndexed() : part;
+            if (!geometry.getAttribute('uv')) {
+                geometry.setAttribute('uv', sphericalUVs(geometry.getAttribute('position') as THREE.BufferAttribute));
+            }
+            return geometry;
+        });
+        const merged = geometries.length === 1 ? geometries[0] : mergeGeometries(geometries);
+        if (!merged) {
+            throw new Error(`Could not merge the meshes of ${file.name}`);
+        }
+        merged.center();
+        merged.computeBoundingSphere();
+        // Same bounding sphere radius as the bundled models (~1.45).
+        const radius = merged.boundingSphere?.radius ?? 0;
+        if (radius > 0) {
+            const scale = 1.45 / radius;
+            merged.scale(scale, scale, scale);
+        }
+
+        const previous = this.customGeometry;
+        this.customGeometry = merged;
+        if (this.currentGeometryKey === CUSTOM_MODEL) {
+            this.previewMesh.geometry = merged;
+        }
+        previous?.dispose();
+    }
+
     private async resolvePolyHavenHdrUrl(slug: string): Promise<string> {
         const response = await fetch(`https://api.polyhaven.com/files/${slug}`);
         if (!response.ok) {
@@ -321,6 +420,12 @@ export class MatcapScene {
         this.currentGeometryKey = key;
         if (key === 'torus') {
             this.previewMesh.geometry = this.torusGeometry;
+            return;
+        }
+        if (key === CUSTOM_MODEL) {
+            if (this.customGeometry) {
+                this.previewMesh.geometry = this.customGeometry;
+            }
             return;
         }
         this.loadModelGeometry(key).then((geometry) => {

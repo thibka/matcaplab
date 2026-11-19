@@ -1,6 +1,6 @@
 import './styles/styles.scss';
 import GUI from 'perfect-gui';
-import { MatcapScene, ENV_MAPS } from './scene';
+import { MatcapScene, ENV_MAPS, CUSTOM_MODEL } from './scene';
 import type { SceneState, ViewportLayout } from './types';
 import { randomInRange, randomColor, hslToHex } from './helpers';
 import { applyState, readStateFromHash, snapshotState, stateToHash, type StateEnums } from './state';
@@ -29,6 +29,9 @@ const STATE_ENUMS: StateEnums = {
     'material.envMap': ENV_MAPS.map((option) => option.slug),
     exportSize: EXPORT_SIZES,
 };
+
+// Undo/redo may also restore the user's custom model, which a shared link or preset can't carry.
+const HISTORY_ENUMS: StateEnums = { ...STATE_ENUMS, 'model.geometry': [...MODEL_GEOMETRIES, CUSTOM_MODEL] };
 
 // Restores a shared state from the URL hash before the GUI reads its initial values.
 applyState(state, readStateFromHash(location.hash), STATE_ENUMS);
@@ -90,7 +93,7 @@ function undo() {
     settle();
     const previous = undoHistory.undo();
     if (previous) {
-        loadState(JSON.parse(previous));
+        loadState(JSON.parse(previous), HISTORY_ENUMS);
     }
 }
 
@@ -98,7 +101,7 @@ function redo() {
     settle();
     const next = undoHistory.redo();
     if (next) {
-        loadState(JSON.parse(next));
+        loadState(JSON.parse(next), HISTORY_ENUMS);
     }
 }
 
@@ -127,10 +130,22 @@ window.addEventListener('keydown', (event) => {
 });
 
 // Applies an external state (shared link, preset) to the live state and the GUI.
-function loadState(source: unknown) {
-    applyState(state, source, STATE_ENUMS);
+function loadState(source: unknown, enums = STATE_ENUMS) {
+    applyState(state, source, enums);
     selectEnvMap(state.material.envMap);
+    syncLists();
     refresh();
+}
+
+// On programmatic changes, perfect-gui's list() only moves the `selected` attribute, which the browser
+// ignores once the user has picked an option: the dropdowns' displayed values are forced here.
+const syncedLists: { select: HTMLSelectElement; read: () => string | number }[] = [];
+function syncList(list: { element: HTMLElement }, read: () => string | number) {
+    syncedLists.push({ select: list.element.querySelector('select')!, read });
+}
+
+function syncLists() {
+    syncedLists.forEach(({ select, read }) => (select.value = String(read())));
 }
 
 // A link pasted in the address bar of an already open tab only changes the hash.
@@ -197,6 +212,63 @@ function pickFile(accept: string): Promise<File | null> {
     });
 }
 
+// Shows a user .glb/.gltf in the preview.
+async function loadCustomModel(file: File) {
+    try {
+        await scene.loadCustomModel(file);
+        state.model.geometry = CUSTOM_MODEL;
+        refresh();
+    } catch (error) {
+        console.error(`Could not load model "${file.name}"`, error);
+        alert(`Could not load "${file.name}". Only self-contained .glb/.gltf files are supported.`);
+    }
+}
+
+// Dropping a file anywhere loads it: a .glb/.gltf model or a .json preset.
+function handleDroppedFile(file: File) {
+    const extension = file.name.split('.').pop()?.toLowerCase();
+    if (extension === 'glb' || extension === 'gltf') {
+        loadCustomModel(file);
+    } else if (extension === 'json') {
+        loadPresetFile(file);
+    } else {
+        alert(`"${file.name}" is not supported. Drop a .glb/.gltf model or a .json preset.`);
+    }
+}
+
+let dragDepth = 0;
+const isFileDrag = (event: DragEvent) => event.dataTransfer?.types.includes('Files') ?? false;
+window.addEventListener('dragenter', (event) => {
+    if (isFileDrag(event)) {
+        dragDepth++;
+        document.body.classList.add('is-dragging-file');
+    }
+});
+window.addEventListener('dragleave', (event) => {
+    if (isFileDrag(event) && --dragDepth <= 0) {
+        dragDepth = 0;
+        document.body.classList.remove('is-dragging-file');
+    }
+});
+window.addEventListener('dragover', (event) => {
+    if (isFileDrag(event)) {
+        event.preventDefault();
+        event.dataTransfer!.dropEffect = 'copy';
+    }
+});
+window.addEventListener('drop', (event) => {
+    if (!isFileDrag(event)) {
+        return;
+    }
+    event.preventDefault();
+    dragDepth = 0;
+    document.body.classList.remove('is-dragging-file');
+    const file = event.dataTransfer?.files[0];
+    if (file) {
+        handleDroppedFile(file);
+    }
+});
+
 async function copyShareLink(button: HTMLElement) {
     settle();
     const url = location.href;
@@ -258,14 +330,36 @@ presetFolder.button({ label: 'Load preset (.json)' }).onClick(async () => {
 });
 
 const exportFolder = gui.folder({ label: 'Export' });
-exportFolder.list(state, 'exportSize', EXPORT_SIZES, { label: 'Size' });
+syncList(exportFolder.list(state, 'exportSize', EXPORT_SIZES, { label: 'Size' }), () => state.exportSize);
 exportFolder.button({ label: 'Export PNG' }).onClick(() => {
     const size = state.exportSize;
     scene.exportPNG(size, `matcap-${size}.png`);
 });
 
 const modelFolder = gui.folder({ label: 'Model' });
-modelFolder.list(state.model, 'geometry', MODEL_GEOMETRIES, { label: 'Model' });
+const modelOptions = [
+    ...MODEL_GEOMETRIES.map((geometry) => ({ label: geometry, value: geometry })),
+    { label: 'custom (.glb)', value: CUSTOM_MODEL },
+];
+let lastBuiltInModel = state.model.geometry;
+const modelList = modelFolder.list(state.model, 'geometry', modelOptions, { label: 'Model' }).onChange((option) => {
+    const value = typeof option === 'object' ? option.value : option;
+    if (value !== CUSTOM_MODEL) {
+        lastBuiltInModel = String(value);
+    } else if (!scene.hasCustomModel) {
+        // Nothing to show yet: stay on the current model and ask for a file instead.
+        state.model.geometry = lastBuiltInModel;
+        syncLists();
+        pickFile('.glb,.gltf').then((file) => file && loadCustomModel(file));
+    }
+});
+syncList(modelList, () => state.model.geometry);
+modelFolder.button({ label: 'Load model (.glb)', tooltip: 'You can also drop a .glb file anywhere' }).onClick(async () => {
+    const file = await pickFile('.glb,.gltf');
+    if (file) {
+        loadCustomModel(file);
+    }
+});
 modelFolder.toggle(state.model, 'autorotate', { label: 'Auto-rotate' });
 
 const envMapFolder = gui.folder({ label: 'Environment Map' });
