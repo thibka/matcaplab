@@ -41,7 +41,9 @@ Exporting reuses this exact pipeline at the resolution you chose (256 up to 4096
 
 - **`index.html`** — Contains the 3 main elements of the DOM: the main viewport, the preview, and the right-side editor
 - **`src/app.ts`** — This is the entry point. It defines the initial state of the scene (i.e. the default settings), instantiates the GUI, and triggers a re-render of the scene after any change of the state.
-- **`src/scene.ts`** — That's where most of the heavy lifting is happening: rendering of the 3d scene (sphere and lights), loading the environment maps and preview models, creating a matcap texture from an off-screen render, applying it as a texture to the preview model, and exporting the PNG.
+- **`src/scene.ts`** — That's where most of the rendering happens: the 3d scene (sphere, materials and lights), creating a matcap texture from an off-screen render, applying it as a texture to the preview model, the layout of the two viewports, and exporting the PNG.
+- **`src/loaders.ts`** — Everything that fetches assets: the preview models (glTF + Draco), the custom models dropped by the user, and the Poly Haven environment maps (turned into PMREM textures). Loaded assets are cached, and a failed load is evicted from the cache so that picking it again retries it.
+- **`src/envMaps.ts`** — The list of environment maps offered in the editor, with their Poly Haven slugs and thumbnails.
 - **`src/state.ts`** — Serializes the state to the URL hash and to preset files, and validates a state read back from them.
 - **`src/history.ts`** — The undo/redo stack.
 - **`src/status.ts`** — The loading and error messages shown while assets are fetched.
