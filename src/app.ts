@@ -1,7 +1,8 @@
 import './styles/styles.scss';
 import GUI from 'perfect-gui';
 import { NeutralToneMapping } from 'three';
-import { MatcapScene, ENV_MAPS, CUSTOM_MODEL, TONE_MAPPINGS } from './scene';
+import { ENV_MAPS } from './envMaps';
+import { MatcapScene, CUSTOM_MODEL, TONE_MAPPINGS } from './scene';
 import { AssetStatus, describeLoadError } from './status';
 import type { AssetKind, LightState, MaterialType, SceneState, ViewportLayout } from './types';
 import { randomInRange, randomColor } from './helpers';
