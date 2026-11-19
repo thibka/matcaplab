@@ -3,6 +3,7 @@ import GUI from 'perfect-gui';
 import { MatcapScene, ENV_MAPS } from './scene';
 import type { SceneState, ViewportLayout } from './types';
 import { randomInRange, randomColor, hslToHex } from './helpers';
+import { applyState, readStateFromHash, stateToHash, type StateEnums } from './state';
 
 const viewport = document.querySelector<HTMLDivElement>('#viewport')!;
 const preview = document.querySelector<HTMLDivElement>('#preview')!;
@@ -19,6 +20,17 @@ const state: SceneState = {
 };
 
 const EXPORT_SIZES = [256, 512, 1024, 2048, 4096];
+const MODEL_GEOMETRIES = ['torus', 'suzanne', 'dragon'];
+
+// Allowed values when restoring a state from outside (URL hash, preset file).
+const STATE_ENUMS: StateEnums = {
+    'model.geometry': MODEL_GEOMETRIES,
+    'material.envMap': ENV_MAPS.map((option) => option.slug),
+    exportSize: EXPORT_SIZES,
+};
+
+// Restores a shared state from the URL hash before the GUI reads its initial values.
+applyState(state, readStateFromHash(location.hash), STATE_ENUMS);
 
 const scene = new MatcapScene(viewport, preview);
 
@@ -36,6 +48,65 @@ setLayout('overlay');
 
 function refresh() {
     scene.update(state);
+    scheduleUrlSync();
+}
+
+// Keeps the URL hash in sync with the state (debounced, without adding browser history entries).
+let urlSyncTimeout = 0;
+let lastWrittenHash = '';
+function scheduleUrlSync() {
+    clearTimeout(urlSyncTimeout);
+    urlSyncTimeout = window.setTimeout(syncUrl, 300);
+}
+
+function syncUrl() {
+    clearTimeout(urlSyncTimeout);
+    lastWrittenHash = stateToHash(state);
+    history.replaceState(null, '', lastWrittenHash);
+}
+
+// Applies an external state (shared link, preset) to the live state and the GUI.
+function loadState(source: unknown) {
+    applyState(state, source, STATE_ENUMS);
+    selectEnvMap(state.material.envMap);
+    refresh();
+}
+
+// A link pasted in the address bar of an already open tab only changes the hash.
+window.addEventListener('hashchange', () => {
+    if (location.hash !== lastWrittenHash) {
+        loadState(readStateFromHash(location.hash));
+    }
+});
+
+// Copies text with the Clipboard API, falling back to execCommand where clipboard access is denied.
+async function copyToClipboard(text: string): Promise<boolean> {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.append(textarea);
+        textarea.select();
+        const copied = document.execCommand('copy');
+        textarea.remove();
+        return copied;
+    }
+}
+
+async function copyShareLink(button: HTMLElement) {
+    syncUrl();
+    const url = location.href;
+    if (!(await copyToClipboard(url))) {
+        window.prompt('Copy this link:', url);
+        return;
+    }
+    const label = button.textContent;
+    button.textContent = 'Link copied!';
+    setTimeout(() => (button.textContent = label), 1500);
 }
 
 function randomizePreset() {
@@ -75,6 +146,10 @@ const gui = new GUI({
 
 gui.button({ label: 'Randomize' }).onClick(randomizePreset);
 
+const presetFolder = gui.folder({ label: 'Preset' });
+const copyLinkButton = presetFolder.button({ label: 'Copy link' });
+copyLinkButton.onClick(() => copyShareLink(copyLinkButton.element));
+
 const exportFolder = gui.folder({ label: 'Export' });
 exportFolder.list(state, 'exportSize', EXPORT_SIZES, { label: 'Size' });
 exportFolder.button({ label: 'Export PNG' }).onClick(() => {
@@ -83,7 +158,7 @@ exportFolder.button({ label: 'Export PNG' }).onClick(() => {
 });
 
 const modelFolder = gui.folder({ label: 'Model' });
-modelFolder.list(state.model, 'geometry', ['torus', 'suzanne', 'dragon'], { label: 'Model' });
+modelFolder.list(state.model, 'geometry', MODEL_GEOMETRIES, { label: 'Model' });
 modelFolder.toggle(state.model, 'autorotate', { label: 'Auto-rotate' });
 
 const envMapFolder = gui.folder({ label: 'Environment Map' });
