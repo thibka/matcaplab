@@ -329,27 +329,29 @@ async function copyShareLink(button: HTMLElement) {
     setTimeout(() => (button.textContent = label), 1500);
 }
 
+// Randomization ranges are kept away from the extremes: a lightness near 0 or 1 would give
+// black or washed-out materials, so presets stay usable.
 function randomizePreset() {
-    state.key.color = randomColor();
+    state.key.color = randomColor([0, 0.6], [0.6, 0.9]);
     state.key.intensity = randomInRange(0.8, 3, 2);
     state.key.azimuth = randomInRange(-180, 180, 0);
     state.key.elevation = randomInRange(15, 75, 0);
 
-    state.fill.color = randomColor();
+    state.fill.color = randomColor([0.3, 0.9], [0.4, 0.8]);
     state.fill.intensity = randomInRange(0.2, 1.5, 2);
     state.fill.azimuth = randomInRange(-180, 180, 0);
     state.fill.elevation = randomInRange(-60, 10, 0);
 
-    state.rim.color = randomColor();
+    state.rim.color = randomColor([0, 0.6], [0.6, 0.9]);
     state.rim.intensity = randomInRange(0.5, 3, 2);
     // Behind the sphere: azimuth within 60° of 180.
     state.rim.azimuth = (randomInRange(120, 240, 0) + 180) % 360 - 180;
     state.rim.elevation = randomInRange(-30, 60, 0);
 
-    state.ambient.color = randomColor();
+    state.ambient.color = randomColor([0, 0.6], [0.3, 0.8]);
     state.ambient.intensity = randomInRange(0, 1, 2);
 
-    state.material.color = randomColor();
+    state.material.color = randomColor([0.2, 0.9], [0.3, 0.8]);
     state.material.roughness = randomInRange(0.1, 0.8, 2);
     state.material.metalness = randomInRange(0, 0.6, 2);
 
@@ -358,7 +360,7 @@ function randomizePreset() {
     physical.clearcoat = Math.random() < 0.5 ? randomInRange(0.2, 1, 2) : 0;
     physical.clearcoatRoughness = randomInRange(0, 0.5, 2);
     physical.sheen = Math.random() < 0.3 ? randomInRange(0.2, 1, 2) : 0;
-    physical.sheenColor = randomColor();
+    physical.sheenColor = randomColor([0.2, 0.9], [0.4, 0.9]);
     physical.sheenRoughness = randomInRange(0.2, 1, 2);
     physical.iridescence = Math.random() < 0.3 ? randomInRange(0.3, 1, 2) : 0;
     physical.iridescenceIOR = randomInRange(1.1, 2, 2);
@@ -366,7 +368,7 @@ function randomizePreset() {
     physical.specularIntensity = randomInRange(0.5, 1, 2);
     physical.ior = randomInRange(1.2, 2, 2);
     state.material.phong.shininess = randomInRange(5, 150, 0);
-    state.material.phong.specular = randomColor();
+    state.material.phong.specular = randomColor([0, 0.4], [0.6, 1]);
     state.material.toon.steps = randomInRange(2, 5, 0);
 
     const randomEnvMap = ENV_MAPS[Math.floor(Math.random() * ENV_MAPS.length)];
