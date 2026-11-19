@@ -2,7 +2,7 @@ import * as THREE from 'three';
 // Loaders are only imported as types here: their code is fetched with import() on first use, keeping it out of the main bundle.
 import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
-import type { AssetLoadEvent, EnvMapOption, PolyHavenFilesResponse, SceneState, ViewportLayout } from './types';
+import type { AssetLoadEvent, EnvMapOption, MaterialType, PolyHavenFilesResponse, SceneState, ViewportLayout } from './types';
 
 const NONE_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkBAMAAACCzIhnAAAALVBMVEUAAABQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFD0f7CQAAAADnRSTlMAEM/vcN8gkIA8n69gv9AeqN0AAAGeSURBVFjD7ZW7SgNBFIbPelmDiCxJL6ayEIIBCxuDYmUTrERUZBt78QFCQCxsrCysxMbSIIKt2Nja2IvmQkxivmcwE8Lu6c4+wHzVDuw/35kLZ8Tj8Xg8HsfNS6W1eiXZCS4YcxiPvh/jLIkaE/qx5HkSmx0SjoMS93ZiDsU5zcgu6wvY3I2Cm1ccRVsyBWyMZw4vwUlMatCd/BY2oGsnFoAtmVAYDyxO4S9ZVgkom5GGmjdPB7uyEPpKUqyBtf552E8lzagAdSMyC3UlkRysGZE7iJVEggo9I3LNQEtEvmgbkVfaWiJSZWBESvS0xFXaMSIVfpRkxBItIwLfqcSxCHYklaQRo7BUkq2wE3pa4pbftDdZSTJtcpWhlrg5fs0L04q0JMS8MNNQ15Ic7BmRHJSVRE4x+1gAXSWRBsR2g+EklcxAXywKoCQfsG9GZoCyHrxlan39OHkCjAaT9q6DOHlmlu1IHsfAtfFPYBhlkaygOMsiaUbvJKyLTZWia/gTupHYfLgzCR+A5JmxWNgWx+1zpXW0Kx6Px+PxjPgHBlQp+dv2kycAAAAASUVORK5CYII=";
 
@@ -51,6 +51,55 @@ export const ENV_MAPS: EnvMapOption[] = [
     },
 ];
 
+type SphereMaterial =
+    | THREE.MeshStandardMaterial
+    | THREE.MeshPhysicalMaterial
+    | THREE.MeshPhongMaterial
+    | THREE.MeshToonMaterial
+    | THREE.MeshLambertMaterial;
+
+function createSphereMaterial(type: MaterialType): SphereMaterial {
+    switch (type) {
+        case 'physical':
+            return new THREE.MeshPhysicalMaterial({ dithering: true });
+        case 'phong':
+            return new THREE.MeshPhongMaterial({ dithering: true });
+        case 'toon':
+            return new THREE.MeshToonMaterial({ dithering: true });
+        case 'lambert':
+            return new THREE.MeshLambertMaterial({ dithering: true });
+        default:
+            return new THREE.MeshStandardMaterial({ dithering: true });
+    }
+}
+
+// Geometry key of the model loaded by the user with loadCustomModel.
+export const CUSTOM_MODEL = 'custom';
+
+// Copies an attribute into a plain Float32 attribute (de-interleaved, de-quantized), so it can be transformed and merged.
+function toFloat32Attribute(attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): THREE.BufferAttribute {
+    const { count, itemSize } = attribute;
+    const array = new Float32Array(count * itemSize);
+    for (let i = 0; i < count; i++) {
+        for (let c = 0; c < itemSize; c++) {
+            array[i * itemSize + c] = attribute.getComponent(i, c);
+        }
+    }
+    return new THREE.BufferAttribute(array, itemSize);
+}
+
+// Spherical UVs, used when a model has none (the preview normal map needs UVs).
+function sphericalUVs(position: THREE.BufferAttribute): THREE.BufferAttribute {
+    const uv = new Float32Array(position.count * 2);
+    const point = new THREE.Vector3();
+    for (let i = 0; i < position.count; i++) {
+        point.fromBufferAttribute(position, i).normalize();
+        uv[i * 2] = 0.5 + Math.atan2(point.x, point.z) / (2 * Math.PI);
+        uv[i * 2 + 1] = 0.5 + Math.asin(THREE.MathUtils.clamp(point.y, -1, 1)) / Math.PI;
+    }
+    return new THREE.BufferAttribute(uv, 2);
+}
+
 // Network requests to Poly Haven fail after this delay instead of leaving the GUI waiting forever.
 const REQUEST_TIMEOUT_MS = 20000;
 
@@ -73,12 +122,15 @@ export class MatcapScene {
     private scene: THREE.Scene;
     private camera: THREE.OrthographicCamera;
     private cameraViewSize: number;
-    private sphere: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
+    private sphere: THREE.Mesh<THREE.SphereGeometry, SphereMaterial>;
+    private sphereMaterials = new Map<MaterialType, SphereMaterial>();
+    private toonGradients = new Map<number, THREE.DataTexture>();
     private modelRadius = 1;
     private previewRadius = 0.85;
     private torusGeometry: THREE.TorusGeometry;
     private gltfLoader: Promise<GLTFLoader> | null = null;
     private modelGeometries = new Map<string, Promise<THREE.BufferGeometry>>();
+    private customGeometry: THREE.BufferGeometry | null = null;
     private hdrLoader: Promise<HDRLoader> | null = null;
     private pmremGenerator: THREE.PMREMGenerator;
     private envMapTextures = new Map<string, Promise<THREE.Texture>>();
@@ -90,6 +142,7 @@ export class MatcapScene {
     private appliedGeometryKey = '';
     private keyLight: THREE.DirectionalLight;
     private fillLight: THREE.DirectionalLight;
+    private rimLight: THREE.DirectionalLight;
     private ambient: THREE.AmbientLight;
     private container: HTMLElement;
     private matcapTarget: THREE.WebGLRenderTarget;
@@ -123,8 +176,7 @@ export class MatcapScene {
         this.camera.position.set(0, 0, 5);
 
         const sphereGeometry = new THREE.SphereGeometry(this.modelRadius, 128, 128);
-        const material = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.4, metalness: 0.1, dithering: true });
-        this.sphere = new THREE.Mesh(sphereGeometry, material);
+        this.sphere = new THREE.Mesh(sphereGeometry, this.getSphereMaterial('standard'));
         this.scene.add(this.sphere);
 
         this.ambient = new THREE.AmbientLight(0xffffff, 0.15);
@@ -135,6 +187,9 @@ export class MatcapScene {
 
         this.fillLight = new THREE.DirectionalLight(0xffffff, 1);
         this.scene.add(this.fillLight);
+
+        this.rimLight = new THREE.DirectionalLight(0xffffff, 1);
+        this.scene.add(this.rimLight);
 
         const radius = this.modelRadius;
         this.matcapTarget = new THREE.WebGLRenderTarget(512, 512);
@@ -333,6 +388,80 @@ export class MatcapScene {
         return loading;
     }
 
+    get hasCustomModel(): boolean {
+        return this.customGeometry !== null;
+    }
+
+    // Loads a user .glb/.gltf (self-contained): all its meshes are merged in world space,
+    // centered and scaled to fit the preview. It is shown when the geometry key is CUSTOM_MODEL.
+    async loadCustomModel(file: File): Promise<void> {
+        const [loader, { mergeGeometries }] = await Promise.all([
+            this.getGLTFLoader(),
+            import('three/examples/jsm/utils/BufferGeometryUtils.js'),
+        ]);
+        const gltf = await loader.parseAsync(await file.arrayBuffer(), '');
+        gltf.scene.updateMatrixWorld(true);
+
+        const parts: THREE.BufferGeometry[] = [];
+        gltf.scene.traverse((child) => {
+            const mesh = child as THREE.Mesh;
+            const position = mesh.isMesh ? mesh.geometry.getAttribute('position') : undefined;
+            if (!position) {
+                return;
+            }
+            const part = new THREE.BufferGeometry();
+            part.setAttribute('position', toFloat32Attribute(position));
+            const normal = mesh.geometry.getAttribute('normal');
+            if (normal) {
+                part.setAttribute('normal', toFloat32Attribute(normal));
+            }
+            const uv = mesh.geometry.getAttribute('uv');
+            if (uv) {
+                part.setAttribute('uv', toFloat32Attribute(uv));
+            }
+            if (mesh.geometry.index) {
+                part.setIndex(mesh.geometry.index.clone());
+            }
+            part.applyMatrix4(mesh.matrixWorld);
+            if (!normal) {
+                part.computeVertexNormals();
+            }
+            parts.push(part);
+        });
+        if (parts.length === 0) {
+            throw new Error(`No mesh found in ${file.name}`);
+        }
+
+        // mergeGeometries needs the same attributes everywhere, and either all or none indexed.
+        const allIndexed = parts.every((part) => part.index);
+        const geometries = parts.map((part) => {
+            const geometry = allIndexed ? part : part.index ? part.toNonIndexed() : part;
+            if (!geometry.getAttribute('uv')) {
+                geometry.setAttribute('uv', sphericalUVs(geometry.getAttribute('position') as THREE.BufferAttribute));
+            }
+            return geometry;
+        });
+        const merged = geometries.length === 1 ? geometries[0] : mergeGeometries(geometries);
+        if (!merged) {
+            throw new Error(`Could not merge the meshes of ${file.name}`);
+        }
+        merged.center();
+        merged.computeBoundingSphere();
+        // Same bounding sphere radius as the bundled models (~1.45).
+        const radius = merged.boundingSphere?.radius ?? 0;
+        if (radius > 0) {
+            const scale = 1.45 / radius;
+            merged.scale(scale, scale, scale);
+        }
+
+        const previous = this.customGeometry;
+        this.customGeometry = merged;
+        if (this.currentGeometryKey === CUSTOM_MODEL) {
+            this.previewMesh.geometry = merged;
+        }
+        previous?.dispose();
+    }
+
     private async resolvePolyHavenHdrUrl(slug: string): Promise<string> {
         const response = await fetchWithTimeout(`https://api.polyhaven.com/files/${slug}`);
         const data: PolyHavenFilesResponse = await response.json();
@@ -375,10 +504,10 @@ export class MatcapScene {
         }
         this.currentEnvMapSlug = slug;
 
+        // Applied through scene.environment (intensity: scene.environmentIntensity) so that every
+        // material type supporting image-based lighting picks it up.
         if (!slug) {
             this.scene.environment = null;
-            this.sphere.material.envMap = null;
-            this.sphere.material.needsUpdate = true;
             this.appliedEnvMapSlug = '';
             this.onAssetLoad?.({ kind: 'envMap', key: slug, status: 'ready' });
             return;
@@ -390,8 +519,6 @@ export class MatcapScene {
                     return;
                 }
                 this.scene.environment = texture;
-                this.sphere.material.envMap = texture;
-                this.sphere.material.needsUpdate = true;
                 this.appliedEnvMapSlug = slug;
                 this.renderMatcap();
                 this.onAssetLoad?.({ kind: 'envMap', key: slug, status: 'ready' });
@@ -407,6 +534,66 @@ export class MatcapScene {
         );
     }
 
+    // One material instance per type, created on first use and kept to avoid recompiling shaders.
+    private getSphereMaterial(type: MaterialType): SphereMaterial {
+        let material = this.sphereMaterials.get(type);
+        if (!material) {
+            material = createSphereMaterial(type);
+            this.sphereMaterials.set(type, material);
+        }
+        return material;
+    }
+
+    // Toon shading gradient with `steps` flat bands.
+    private getToonGradient(steps: number): THREE.DataTexture {
+        let gradient = this.toonGradients.get(steps);
+        if (!gradient) {
+            const data = new Uint8Array(steps);
+            for (let i = 0; i < steps; i++) {
+                data[i] = Math.round((i / (steps - 1)) * 255);
+            }
+            gradient = new THREE.DataTexture(data, steps, 1, THREE.RedFormat);
+            gradient.minFilter = THREE.NearestFilter;
+            gradient.magFilter = THREE.NearestFilter;
+            gradient.needsUpdate = true;
+            this.toonGradients.set(steps, gradient);
+        }
+        return gradient;
+    }
+
+    private updateSphereMaterial({ material: state }: SceneState) {
+        const material = this.getSphereMaterial(state.type);
+        this.sphere.material = material;
+        material.color.set(state.color);
+
+        // MeshPhysicalMaterial extends MeshStandardMaterial.
+        if (material instanceof THREE.MeshStandardMaterial) {
+            material.roughness = state.roughness;
+            material.metalness = state.metalness;
+        }
+        if (material instanceof THREE.MeshPhysicalMaterial) {
+            const physical = state.physical;
+            material.clearcoat = physical.clearcoat;
+            material.clearcoatRoughness = physical.clearcoatRoughness;
+            material.sheen = physical.sheen;
+            material.sheenColor.set(physical.sheenColor);
+            material.sheenRoughness = physical.sheenRoughness;
+            material.iridescence = physical.iridescence;
+            material.iridescenceIOR = physical.iridescenceIOR;
+            material.iridescenceThicknessRange = [100, physical.iridescenceThickness];
+            material.specularIntensity = physical.specularIntensity;
+            material.specularColor.set(physical.specularColor);
+            material.ior = physical.ior;
+        }
+        if (material instanceof THREE.MeshPhongMaterial) {
+            material.shininess = state.phong.shininess;
+            material.specular.set(state.phong.specular);
+        }
+        if (material instanceof THREE.MeshToonMaterial) {
+            material.gradientMap = this.getToonGradient(state.toon.steps);
+        }
+    }
+
     private setGeometry(key: string) {
         if (key === this.currentGeometryKey) {
             return;
@@ -416,6 +603,17 @@ export class MatcapScene {
             this.previewMesh.geometry = this.torusGeometry;
             this.appliedGeometryKey = key;
             this.onAssetLoad?.({ kind: 'model', key, status: 'ready' });
+            return;
+        }
+        if (key === CUSTOM_MODEL) {
+            // The user model is loaded beforehand by loadCustomModel; without one, keep the displayed model.
+            if (this.customGeometry) {
+                this.previewMesh.geometry = this.customGeometry;
+                this.appliedGeometryKey = key;
+                this.onAssetLoad?.({ kind: 'model', key, status: 'ready' });
+            } else {
+                this.currentGeometryKey = this.appliedGeometryKey;
+            }
             return;
         }
         this.onAssetLoad?.({ kind: 'model', key, status: 'loading' });
@@ -450,14 +648,16 @@ export class MatcapScene {
         this.fillLight.intensity = state.fill.intensity;
         this.fillLight.position.copy(lightPosition(state.fill.azimuth, state.fill.elevation));
 
+        this.rimLight.color.set(state.rim.color);
+        this.rimLight.intensity = state.rim.intensity;
+        this.rimLight.position.copy(lightPosition(state.rim.azimuth, state.rim.elevation));
+
         this.ambient.color.set(state.ambient.color);
         this.ambient.intensity = state.ambient.intensity;
 
-        this.sphere.material.color.set(state.material.color);
-        this.sphere.material.roughness = state.material.roughness;
-        this.sphere.material.metalness = state.material.metalness;
+        this.updateSphereMaterial(state);
         this.setEnvMap(state.material.envMap);
-        this.sphere.material.envMapIntensity = state.material.envMapIntensity;
+        this.scene.environmentIntensity = state.material.envMapIntensity;
 
         this.scene.background = new THREE.Color(0x000000);
 
