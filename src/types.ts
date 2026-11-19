@@ -54,6 +54,7 @@ export type SceneState = {
     model: { geometry: string; autorotate: boolean };
     key: LightState;
     fill: LightState;
+    rim: LightState;
     ambient: AmbientState;
     material: MaterialState;
     exportSize: number;

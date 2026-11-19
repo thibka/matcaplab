@@ -15,6 +15,8 @@ const state: SceneState = {
     model: { geometry: 'torus', autorotate: true },
     key: { color: '#ffffff', intensity: 2, azimuth: -40, elevation: 40 },
     fill: { color: '#88aaff', intensity: 0.6, azimuth: 130, elevation: -20 },
+    // Placed behind the sphere (azimuth 180 is opposite the camera) to light its silhouette.
+    rim: { color: '#ffffff', intensity: 1, azimuth: 160, elevation: 35 },
     ambient: { color: '#ffffff', intensity: 0.1 },
     material: {
         type: 'standard',
@@ -322,6 +324,12 @@ function randomizePreset() {
     state.fill.azimuth = randomInRange(-180, 180, 0);
     state.fill.elevation = randomInRange(-60, 10, 0);
 
+    state.rim.color = hslToHex(randomColor());
+    state.rim.intensity = randomInRange(0.5, 3, 2);
+    // Behind the sphere: azimuth within 60° of 180.
+    state.rim.azimuth = (randomInRange(120, 240, 0) + 180) % 360 - 180;
+    state.rim.elevation = randomInRange(-30, 60, 0);
+
     state.ambient.color = hslToHex(randomColor());
     state.ambient.intensity = randomInRange(0, 1, 2);
 
@@ -443,6 +451,12 @@ fillFolder.color(state.fill, 'color', { label: 'Color' });
 fillFolder.slider(state.fill, 'intensity', { label: 'Intensity', min: 0, max: 5, step: 0.05 });
 fillFolder.angle(state.fill, 'azimuth', { label: 'Azimuth', min: -180, max: 180, step: 1 });
 fillFolder.angle(state.fill, 'elevation', { label: 'Elevation', min: -90, max: 90, step: 1 });
+
+const rimFolder = gui.folder({ label: 'Rim Light' });
+rimFolder.color(state.rim, 'color', { label: 'Color' });
+rimFolder.slider(state.rim, 'intensity', { label: 'Intensity', min: 0, max: 5, step: 0.05 });
+rimFolder.angle(state.rim, 'azimuth', { label: 'Azimuth', min: -180, max: 180, step: 1 });
+rimFolder.angle(state.rim, 'elevation', { label: 'Elevation', min: -90, max: 90, step: 1 });
 
 const ambientFolder = gui.folder({ label: 'Ambient Light' });
 ambientFolder.color(state.ambient, 'color', { label: 'Color' });

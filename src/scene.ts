@@ -129,6 +129,7 @@ export class MatcapScene {
     private currentGeometryKey = '';
     private keyLight: THREE.DirectionalLight;
     private fillLight: THREE.DirectionalLight;
+    private rimLight: THREE.DirectionalLight;
     private ambient: THREE.AmbientLight;
     private container: HTMLElement;
     private matcapTarget: THREE.WebGLRenderTarget;
@@ -168,6 +169,9 @@ export class MatcapScene {
 
         this.fillLight = new THREE.DirectionalLight(0xffffff, 1);
         this.scene.add(this.fillLight);
+
+        this.rimLight = new THREE.DirectionalLight(0xffffff, 1);
+        this.scene.add(this.rimLight);
 
         const radius = this.modelRadius;
         this.matcapTarget = new THREE.WebGLRenderTarget(512, 512);
@@ -527,6 +531,10 @@ export class MatcapScene {
         this.fillLight.color.set(state.fill.color);
         this.fillLight.intensity = state.fill.intensity;
         this.fillLight.position.copy(lightPosition(state.fill.azimuth, state.fill.elevation));
+
+        this.rimLight.color.set(state.rim.color);
+        this.rimLight.intensity = state.rim.intensity;
+        this.rimLight.position.copy(lightPosition(state.rim.azimuth, state.rim.elevation));
 
         this.ambient.color.set(state.ambient.color);
         this.ambient.intensity = state.ambient.intensity;
