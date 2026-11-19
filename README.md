@@ -78,16 +78,8 @@ Requires Node 22.12+ or 24+ (see `.nvmrc`).
 
 ## CI and deployment
 
-`.github/workflows/ci.yml` runs lint, typecheck, tests and build on every pull request and every push to `main`.
-On `main`, it then publishes `dist/` to GitHub Pages at https://thibka.github.io/matcaplab/.
-
-To enable it (one-time setup):
-
-1. In the repository settings, go to **Pages → Build and deployment → Source** and choose **GitHub Actions**
-   (or run `gh api -X POST repos/thibka/matcaplab/pages -f build_type=workflow`).
-2. Push to `main`, or run the **CI** workflow manually from the Actions tab.
-3. Check that the deploy job succeeded and that https://thibka.github.io/matcaplab/ still loads.
-4. Delete the old, manually copied `matcaplab/` folder from the `thibka/thibka.github.io` repository.
+`.github/workflows/ci.yml` runs lint, format check, typecheck, tests and build on every pull request and every push to `main`.
+On `main`, it then publishes `dist/` to GitHub Pages at https://thibka.github.io/matcaplab/ (repository settings: **Pages → Source: GitHub Actions**).
 
 ## AI usage
 
