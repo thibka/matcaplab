@@ -1,19 +1,14 @@
+import * as THREE from 'three';
+
 export function randomInRange(min: number, max: number, decimals = 2): number {
     const value = min + Math.random() * (max - min);
     const factor = 10 ** decimals;
     return Math.round(value * factor) / factor;
 }
 
-export function randomColor(): string {
-    const hue = Math.floor(randomInRange(0, 360));
-    const saturation = Math.floor(randomInRange(0, 100));
-    const lightness = Math.floor(randomInRange(0, 100));
-
-    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-}
-
-export function hslToHex(hsl: string): string {
-    const ctx = document.createElement('canvas').getContext('2d')!;
-    ctx.fillStyle = hsl;
-    return ctx.fillStyle;
+// Returns a random hex color ('#rrggbb'). Saturation and lightness ranges are fractions (0 to 1),
+// interpreted like CSS hsl() values.
+export function randomColor(saturation: [number, number] = [0, 1], lightness: [number, number] = [0, 1]): string {
+    const color = new THREE.Color().setHSL(Math.random(), randomInRange(...saturation), randomInRange(...lightness), THREE.SRGBColorSpace);
+    return `#${color.getHexString()}`;
 }
