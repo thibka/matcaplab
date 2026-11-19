@@ -102,11 +102,12 @@ function scheduleSettle() {
 
 // A slow drag can pause longer than the debounce: wait for the pointer release instead.
 window.addEventListener('pointerdown', () => (pointerDown = true), true);
-window.addEventListener('pointerup', () => {
+const releasePointer = () => {
     pointerDown = false;
     scheduleSettle();
-}, true);
-window.addEventListener('pointercancel', () => (pointerDown = false), true);
+};
+window.addEventListener('pointerup', releasePointer, true);
+window.addEventListener('pointercancel', releasePointer, true);
 
 function settle() {
     clearTimeout(settleTimeout);
