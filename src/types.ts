@@ -39,3 +39,12 @@ export type SceneState = {
 };
 
 export type ViewportLayout = 'split' | 'overlay';
+
+export type AssetKind = 'envMap' | 'model';
+
+// Progress of the env map / preview model requested by the GUI. On 'error', `fallback` is the key
+// still displayed by the scene, so the GUI can revert its selection to it.
+export type AssetLoadEvent =
+    | { kind: AssetKind; key: string; status: 'loading' }
+    | { kind: AssetKind; key: string; status: 'ready' }
+    | { kind: AssetKind; key: string; status: 'error'; error: unknown; fallback: string };

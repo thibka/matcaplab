@@ -1,7 +1,8 @@
 import './styles/styles.scss';
 import GUI from 'perfect-gui';
 import { MatcapScene, ENV_MAPS } from './scene';
-import type { SceneState, ViewportLayout } from './types';
+import { AssetStatus, describeLoadError } from './status';
+import type { AssetKind, SceneState, ViewportLayout } from './types';
 import { randomInRange, randomColor, hslToHex } from './helpers';
 
 const viewport = document.querySelector<HTMLDivElement>('#viewport')!;
@@ -83,7 +84,7 @@ exportFolder.button({ label: 'Export PNG' }).onClick(() => {
 });
 
 const modelFolder = gui.folder({ label: 'Model' });
-modelFolder.list(state.model, 'geometry', ['torus', 'suzanne', 'dragon'], { label: 'Model' });
+const modelList = modelFolder.list(state.model, 'geometry', ['torus', 'suzanne', 'dragon'], { label: 'Model' });
 modelFolder.toggle(state.model, 'autorotate', { label: 'Auto-rotate' });
 
 const envMapFolder = gui.folder({ label: 'Environment Map' });
@@ -133,5 +134,58 @@ materialFolder.slider(state.material, 'metalness', { label: 'Metalness', min: 0,
 materialFolder.slider(state.material, 'envMapIntensity', { label: 'Env Intensity', min: 0, max: 1.5, step: 0.01 });
 
 
+const assetStatus = new AssetStatus(document.querySelector<HTMLDivElement>('#asset-status')!);
+
+function assetLabel(kind: AssetKind, key: string): string {
+    if (kind === 'envMap') {
+        return ENV_MAPS.find((option) => option.slug === key)?.label ?? key;
+    }
+    return key.charAt(0).toUpperCase() + key.slice(1);
+}
+
+function selectAsset(kind: AssetKind, key: string) {
+    if (kind === 'envMap') {
+        selectEnvMap(key);
+    } else {
+        state.model.geometry = key;
+        // perfect-gui only moves the `selected` attribute, which no longer changes the shown option once the user
+        // has picked one from the dropdown, so the select value is synced directly.
+        modelList.element.querySelector('select')!.value = key;
+    }
+}
+
+// Flags the GUI control of an asset as loading or failed (the model list is a single control).
+function markGuiControl(kind: AssetKind, key: string, status: 'loading' | 'error' | null) {
+    const controls = kind === 'envMap' ? envMapImages : [{ slug: key, element: modelList.element }];
+    controls.forEach(({ slug, element }) => {
+        element.classList.toggle('is-loading', status === 'loading' && slug === key);
+        element.classList.toggle('is-error', status === 'error' && slug === key);
+    });
+}
+
+// On failure the scene keeps the previous asset, so the GUI selection reverts to it and the error offers a retry.
+scene.onAssetLoad = (event) => {
+    const label = assetLabel(event.kind, event.key);
+    if (event.status === 'loading') {
+        assetStatus.loading(event.kind, label);
+        markGuiControl(event.kind, event.key, 'loading');
+    } else if (event.status === 'ready') {
+        assetStatus.clear(event.kind);
+        markGuiControl(event.kind, event.key, null);
+    } else {
+        console.error(`Failed to load ${label}:`, event.error);
+        selectAsset(event.kind, event.fallback);
+        markGuiControl(event.kind, event.key, 'error');
+        assetStatus.error(
+            event.kind,
+            `Couldn't load ${label} (${describeLoadError(event.error)}).`,
+            () => {
+                selectAsset(event.kind, event.key);
+                refresh();
+            },
+            () => markGuiControl(event.kind, event.key, null),
+        );
+    }
+};
 
 refresh();
